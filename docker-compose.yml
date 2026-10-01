@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: secure-spa-app-container
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - JWT_SECRET=production-secret-key-spp-lab3-2026
+      - REFRESH_TOKEN_SECRET=production-refresh-secret-key-spp-lab3-2026
+    volumes:
+      - ./secure_todo.db:/app/secure_todo.db
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs

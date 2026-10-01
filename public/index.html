@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Лабораторная №3 - Защищенная система управления задачами (RBAC, JWT, Аудит)</title>
+    
+    <!-- Flatpickr (выбор даты) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+    
+    <!-- Стили приложения -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- Контейнер для всплывающих уведомлений (Toasts) -->
+<div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+<!-- Верхняя навигационная панель -->
+<nav class="navbar">
+    <div class="nav-container">
+        <div class="nav-brand">
+            <span class="nav-logo">🛡️</span>
+            <div>
+                <span class="brand-title">SecureTaskManager</span>
+                <span class="brand-badge">СПП ЛР3</span>
+            </div>
+        </div>
+
+        <!-- Кнопки быстрого переключения ролей для удобства преподавателя на защите -->
+        <div class="demo-switchers" id="demo-switchers">
+            <span class="demo-label">Быстрый вход:</span>
+            <button type="button" class="btn-demo btn-demo-manager" onclick="quickLogin('manager')">👔 Руководитель</button>
+            <button type="button" class="btn-demo btn-demo-executor" onclick="quickLogin('executor')">🔨 Исполнитель</button>
+            <button type="button" class="btn-demo btn-demo-reviewer" onclick="quickLogin('reviewer')">🔍 Проверяющий</button>
+        </div>
+
+        <!-- Блок профиля пользователя -->
+        <div class="user-nav-section" id="user-nav-section">
+            <div id="nav-guest" class="nav-guest">
+                <button class="btn btn-outline-primary" onclick="openLoginModal()">Вход</button>
+                <button class="btn btn-primary" onclick="openRegisterModal()">Регистрация</button>
+            </div>
+            <div id="nav-auth" class="nav-auth" style="display: none;">
+                <div class="user-badge">
+                    <span class="user-avatar" id="nav-avatar">👤</span>
+                    <div class="user-info-text">
+                        <span class="user-name" id="nav-user-name">Загрузка...</span>
+                        <span class="role-pill" id="nav-role-badge">Роль</span>
+                    </div>
+                </div>
+                <div class="nav-actions">
+                    <button type="button" class="btn-icon-nav" onclick="openSessionsModal()" title="Контроль активных сессий">
+                        💻 Сессии
+                    </button>
+                    <button type="button" class="btn-icon-nav" id="btn-audit-logs" onclick="openAuditModal()" style="display: none;" title="Журнал аудита безопасности">
+                        📋 Аудит
+                    </button>
+                    <button type="button" class="btn-icon-nav btn-logout" onclick="handleLogout()" title="Выйти из системы">
+                        🚪 Выход
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<!-- Основной контент страницы -->
+<main class="container">
+    <!-- Информационная плашка роли и прав -->
+    <div id="role-banner" class="role-banner" style="display: none;">
+        <div class="role-banner-icon" id="role-banner-icon">ℹ️</div>
+        <div class="role-banner-content">
+            <strong id="role-banner-title">Ролевой режим</strong>
+            <p id="role-banner-desc">Описание прав текущей роли.</p>
+        </div>
+    </div>
+
+    <!-- Блок глобальных предупреждений/ошибок -->
+    <div id="global-alert" class="alert alert-danger" style="display: none;">
+        <span id="global-alert-text"></span>
+        <button type="button" class="alert-close" onclick="hideGlobalAlert()">✕</button>
+    </div>
+
+    <!-- Секция создания задачи (Только для Руководителя) -->
+    <section id="manager-create-section" class="card form-card" style="display: none;">
+        <div class="card-header-flex">
+            <h2>➕ Создание новой задачи (Права Руководителя)</h2>
+        </div>
+        <form id="create-task-form" novalidate>
+            <div id="form-validation-errors" class="validation-summary" style="display: none;"></div>
+
+            <div class="form-group">
+                <label for="task-title">Название задачи <span class="required-star">*</span></label>
+                <input type="text" id="task-title" name="title" placeholder="Введите название задачи..." required autocomplete="off">
+                <div class="field-error-msg" id="error-task-title"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="task-desc">Подробное описание:</label>
+                <textarea id="task-desc" name="description" rows="2" placeholder="Опишите требования к задаче..."></textarea>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group flex-1">
+                    <label for="task-executor">Назначить исполнителя:</label>
+                    <select id="task-executor" name="executorId">
+                        <option value="">-- Выберите исполнителя --</option>
+                    </select>
+                </div>
+
+                <div class="form-group flex-1">
+                    <label for="task-reviewer">Назначить проверяющего:</label>
+                    <select id="task-reviewer" name="reviewerId">
+                        <option value="">-- Выберите проверяющего --</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group flex-1">
+                    <label for="task-dueDate">Срок выполнения:</label>
+                    <div class="date-input-wrapper">
+                        <input type="text" id="task-dueDate" name="dueDate" placeholder="Выберите дату..." readonly>
+                        <button type="button" class="btn-clear" id="btn-clear-date" title="Очистить дату">✕</button>
+                    </div>
+                </div>
+
+                <div class="form-group flex-1">
+                    <label for="task-status">Начальный статус:</label>
+                    <select id="task-status" name="status">
+                        <option value="pending">Ожидает</option>
+                        <option value="in_progress">В процессе</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="task-attachment">Прикрепить ТЗ / Файл:</label>
+                <div class="file-drop-area">
+                    <input type="file" id="task-attachment" name="attachment">
+                    <span class="file-hint">Максимальный размер: 15 МБ</span>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" id="btn-submit-task" class="btn btn-primary">
+                    💾 Создать задачу
+                </button>
+                <button type="button" id="btn-reset-form" class="btn btn-secondary">
+                    Очистить
+                </button>
+            </div>
+        </form>
+    </section>
+
+    <!-- Панель управления списком (фильтры, поиск, счетчики) -->
+    <section class="controls-panel">
+        <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" placeholder="Поиск по названию или описанию..." autocomplete="off">
+            <button type="button" id="btn-clear-search" class="btn-clear-search" style="display: none;">✕</button>
+        </div>
+
+        <div class="filter-tabs">
+            <button class="filter-tab active" data-filter="all">
+                Все <span class="counter" id="count-all">0</span>
+            </button>
+            <button class="filter-tab" data-filter="pending">
+                Ожидают <span class="counter" id="count-pending">0</span>
+            </button>
+            <button class="filter-tab" data-filter="in_progress">
+                В работе <span class="counter" id="count-in_progress">0</span>
+            </button>
+            <button class="filter-tab" data-filter="in_review">
+                На проверке <span class="counter" id="count-in_review">0</span>
+            </button>
+            <button class="filter-tab" data-filter="completed">
+                Завершены <span class="counter" id="count-completed">0</span>
+            </button>
+            <button class="filter-tab" data-filter="rejected">
+                Доработка <span class="counter" id="count-rejected">0</span>
+            </button>
+        </div>
+    </section>
+
+    <!-- Список задач -->
+    <section class="tasks-section">
+        <div class="tasks-header">
+            <h2>Список задач</h2>
+            <div class="role-scope-toggle" id="role-scope-toggle">
+                <label>
+                    <input type="checkbox" id="my-tasks-only">
+                    <span>Показывать только мои задачи</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Индикатор загрузки -->
+        <div id="loading-spinner" class="loading-state" style="display: none;">
+            <div class="spinner"></div>
+            <p>Загрузка данных с сервера...</p>
+        </div>
+
+        <!-- Контейнер для отображения задач -->
+        <ul id="task-list" class="task-list"></ul>
+
+        <!-- Состояние пустого списка -->
+        <div id="empty-state" class="empty-state" style="display: none;">
+            <div class="empty-icon">📭</div>
+            <p class="empty-title">Задачи не найдены</p>
+            <p class="empty-subtitle">Создайте задачу (под ролью Руководитель) или измените параметры фильтра.</p>
+        </div>
+    </section>
+</main>
+
+<!-- МОДАЛЬНОЕ ОКНО: АВТОРИЗАЦИЯ (ВХОД) -->
+<div id="login-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeLoginModal()"></div>
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔐 Вход в систему</h3>
+                <button type="button" class="modal-close-btn" onclick="closeLoginModal()">✕</button>
+            </div>
+            <form id="login-form" novalidate>
+                <div id="login-errors" class="validation-summary" style="display: none;"></div>
+
+                <div class="form-group">
+                    <label for="login-email">Email:</label>
+                    <input type="email" id="login-email" name="email" required autocomplete="username">
+                </div>
+
+                <div class="form-group">
+                    <label for="login-password">Пароль:</label>
+                    <input type="password" id="login-password" name="password" required autocomplete="current-password">
+                </div>
+
+                <div class="login-options">
+                    <a href="javascript:void(0)" onclick="openForgotPasswordModal()">Забыли пароль?</a>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeLoginModal()">Отмена</button>
+                    <button type="submit" id="btn-login-submit" class="btn btn-primary">Войти</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: РЕГИСТРАЦИЯ -->
+<div id="register-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeRegisterModal()"></div>
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📝 Регистрация</h3>
+                <button type="button" class="modal-close-btn" onclick="closeRegisterModal()">✕</button>
+            </div>
+            <form id="register-form" novalidate>
+                <div id="register-errors" class="validation-summary" style="display: none;"></div>
+
+                <div class="form-group">
+                    <label for="reg-name">ФИО / Имя:</label>
+                    <input type="text" id="reg-name" name="name" required placeholder="Иванов Иван">
+                </div>
+
+                <div class="form-group">
+                    <label for="reg-email">Email:</label>
+                    <input type="email" id="reg-email" name="email" required placeholder="user@example.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="reg-role">Роль в системе:</label>
+                    <select id="reg-role" name="role" required>
+                        <option value="executor">Исполнитель</option>
+                        <option value="reviewer">Проверяющий</option>
+                        <option value="manager">Руководитель</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="reg-password">Пароль (мин. 8 симв., цифры, заглавные):</label>
+                    <input type="password" id="reg-password" name="password" required autocomplete="new-password">
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeRegisterModal()">Отмена</button>
+                    <button type="submit" id="btn-reg-submit" class="btn btn-primary">Зарегистрироваться</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: ЗАПРОС СБРОСА ПАРОЛЯ ЧЕРЕЗ EMAIL -->
+<div id="forgot-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeForgotModal()"></div>
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📧 Восстановление доступа</h3>
+                <button type="button" class="modal-close-btn" onclick="closeForgotModal()">✕</button>
+            </div>
+            <form id="forgot-form" novalidate>
+                <p class="modal-hint">Введите ваш email. На него будет отправлен одноразовый временный токен восстановления.</p>
+                <div id="forgot-errors" class="validation-summary" style="display: none;"></div>
+                <div id="forgot-success" class="alert alert-success" style="display: none;"></div>
+
+                <div class="form-group">
+                    <label for="forgot-email">Email:</label>
+                    <input type="email" id="forgot-email" name="email" required placeholder="name@example.com">
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeForgotModal()">Закрыть</button>
+                    <button type="submit" id="btn-forgot-submit" class="btn btn-primary">Отправить токен</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: ВВОД НОВОГО ПАРОЛЯ ПО ТОКЕНУ -->
+<div id="reset-password-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeResetModal()"></div>
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔑 Установка нового пароля</h3>
+                <button type="button" class="modal-close-btn" onclick="closeResetModal()">✕</button>
+            </div>
+            <form id="reset-password-form" novalidate>
+                <div id="reset-errors" class="validation-summary" style="display: none;"></div>
+
+                <div class="form-group">
+                    <label for="reset-token">Одноразовый токен из письма:</label>
+                    <input type="text" id="reset-token" name="token" required placeholder="Вставьте токен...">
+                </div>
+
+                <div class="form-group">
+                    <label for="reset-new-password">Новый пароль:</label>
+                    <input type="password" id="reset-new-password" name="newPassword" required placeholder="Мин. 8 знаков, заглавная, цифра">
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeResetModal()">Отмена</button>
+                    <button type="submit" id="btn-reset-pass-submit" class="btn btn-primary">Сохранить пароль</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: КОНТРОЛЬ АКТИВНЫХ СЕССИЙ И ПОДКЛЮЧЕНИЙ -->
+<div id="sessions-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeSessionsModal()"></div>
+    <div class="modal-dialog modal-md">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>💻 Контроль активных подключений</h3>
+                <button type="button" class="modal-close-btn" onclick="closeSessionsModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-hint">Список устройств, имеющих действительный токен доступа к вашему аккаунту:</p>
+                <div class="sessions-actions-bar">
+                    <button type="button" class="btn btn-warning btn-sm" onclick="revokeOtherSessions()">
+                        🚫 Отозвать все другие сессии
+                    </button>
+                </div>
+                <div id="sessions-list" class="sessions-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeSessionsModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: ЖУРНАЛ АУДИТА БЕЗОПАСНОСТИ (РУКОВОДИТЕЛЬ) -->
+<div id="audit-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeAuditModal()"></div>
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📋 Структурированный аудит безопасности</h3>
+                <button type="button" class="modal-close-btn" onclick="closeAuditModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-hint">Журнал событий аутентификации, блокировок, изменения задач и доступа к API:</p>
+                <div class="audit-table-wrapper">
+                    <table class="audit-table">
+                        <thead>
+                            <tr>
+                                <th>Время</th>
+                                <th>Событие</th>
+                                <th>Пользователь</th>
+                                <th>IP-адрес</th>
+                                <th>Статус</th>
+                                <th>Детали</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-table-body">
+                            <tr><td colspan="6" style="text-align: center;">Загрузка логов...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeAuditModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: РЕЦЕНЗИРОВАНИЕ / ПРОВЕРКА ЗАДАЧИ (ПРОВЕРЯЮЩИЙ) -->
+<div id="review-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeReviewModal()"></div>
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔍 Проверка выполнения задачи</h3>
+                <button type="button" class="modal-close-btn" onclick="closeReviewModal()">✕</button>
+            </div>
+            <form id="review-task-form" novalidate>
+                <input type="hidden" id="review-task-id">
+                <p>Задача: <strong id="review-task-title"></strong></p>
+
+                <div class="form-group">
+                    <label for="review-decision">Решение проверки:</label>
+                    <select id="review-decision" name="status" onchange="toggleReviewCommentRequired()">
+                        <option value="completed">✅ Принять (Завершить задачу)</option>
+                        <option value="rejected">↩️ Вернуть на доработку (Отклонить)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="review-comment">Замечания / Комментарий проверяющего <span id="review-comment-star" style="display: none;" class="required-star">*</span>:</label>
+                    <textarea id="review-comment" name="reviewComment" rows="3" placeholder="Укажите комментарий к проверке..."></textarea>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeReviewModal()">Отмена</button>
+                    <button type="submit" id="btn-save-review" class="btn btn-primary">Подтвердить решение</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: РЕДАКТИРОВАНИЕ ЗАДАЧИ (РУКОВОДИТЕЛЬ) -->
+<div id="edit-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeEditModal()"></div>
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>✏️ Редактирование задачи</h3>
+                <button type="button" class="modal-close-btn" onclick="closeEditModal()">✕</button>
+            </div>
+            <form id="edit-task-form" novalidate>
+                <input type="hidden" id="edit-task-id" name="id">
+                <div id="edit-validation-errors" class="validation-summary" style="display: none;"></div>
+
+                <div class="form-group">
+                    <label for="edit-title">Название задачи <span class="required-star">*</span></label>
+                    <input type="text" id="edit-title" name="title" required autocomplete="off">
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-desc">Описание задачи:</label>
+                    <textarea id="edit-desc" name="description" rows="2"></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label for="edit-executor">Исполнитель:</label>
+                        <select id="edit-executor" name="executorId"></select>
+                    </div>
+
+                    <div class="form-group flex-1">
+                        <label for="edit-reviewer">Проверяющий:</label>
+                        <select id="edit-reviewer" name="reviewerId"></select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label for="edit-dueDate">Срок выполнения:</label>
+                        <input type="text" id="edit-dueDate" name="dueDate" readonly>
+                    </div>
+
+                    <div class="form-group flex-1">
+                        <label for="edit-status">Статус:</label>
+                        <select id="edit-status" name="status">
+                            <option value="pending">Ожидает</option>
+                            <option value="in_progress">В работе</option>
+                            <option value="in_review">На проверке</option>
+                            <option value="completed">Завершено</option>
+                            <option value="rejected">На доработке</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Прикрепленный файл:</label>
+                    <div id="current-attachment-box" class="current-attachment-box" style="display: none;">
+                        <span class="attachment-info">📎 <span id="current-filename"></span></span>
+                        <label class="remove-attachment-label">
+                            <input type="checkbox" id="edit-removeAttachment" name="removeAttachment" value="true">
+                            <span>Удалить этот файл</span>
+                        </label>
+                    </div>
+                    <label for="edit-attachment" style="font-weight: normal; margin-top: 8px;">
+                        Загрузить новый файл:
+                    </label>
+                    <input type="file" id="edit-attachment" name="attachment">
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
+                    <button type="submit" id="btn-save-edit" class="btn btn-primary">💾 Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ ЗАДАЧИ -->
+<div id="delete-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeDeleteModal()"></div>
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🗑️ Удаление задачи</h3>
+                <button type="button" class="modal-close-btn" onclick="closeDeleteModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p>Вы действительно хотите удалить задачу: <br><strong id="delete-task-title"></strong>?</p>
+                <p class="modal-warning-text">Действие необратимо. Событие будет зафиксировано в журнале аудита.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Отмена</button>
+                <button type="button" id="btn-confirm-delete" class="btn btn-danger">Удалить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Библиотеки и скрипты -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
