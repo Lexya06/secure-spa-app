@@ -368,7 +368,7 @@ function openSessionsModal() {
 function closeSessionsModal() { document.getElementById('sessions-modal').classList.remove('active'); }
 
 // Управление видимостью демонстрационной панели
-function toggleDemoPanel(show) {
+async function toggleDemoPanel(show) {
     const panel = document.getElementById('demo-switchers');
     const restoreBtn = document.getElementById('btn-show-demo');
     if (show) {
@@ -380,7 +380,14 @@ function toggleDemoPanel(show) {
         localStorage.setItem('hide_demo_panel', 'true');
         if (panel) panel.style.display = 'none';
         if (restoreBtn) restoreBtn.style.display = 'inline-block';
-        showToast('Демо-панель скрыта. Включить ее можно кнопкой внизу страницы.', 'info');
+
+        // Автоматически завершаем сессию при отключении демо-режима
+        if (currentUser) {
+            await handleLogout();
+        }
+
+        showToast('Демо-панель скрыта. Теперь выполняется вход вручную.', 'info');
+        openLoginModal();
     }
 }
 
