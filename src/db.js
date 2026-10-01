@@ -95,46 +95,53 @@ function seedDatabase() {
         const executorHash = bcrypt.hashSync('Executor123!', config.BCRYPT_SALT_ROUNDS);
         const reviewerHash = bcrypt.hashSync('Reviewer123!', config.BCRYPT_SALT_ROUNDS);
 
-        const m = insertUser.run('Иван Руководителев', 'manager@example.com', managerHash, config.ROLES.MANAGER);
-        const e = insertUser.run('Алексей Исполнителев', 'executor@example.com', executorHash, config.ROLES.EXECUTOR);
-        const r = insertUser.run('Ольга Проверяющая', 'reviewer@example.com', reviewerHash, config.ROLES.REVIEWER);
+        // 1. Руководитель
+        const m1 = insertUser.run('Дмитрий Ковалев', 'manager@example.com', managerHash, config.ROLES.MANAGER);
 
-        // Добавим демо-задачи
+        // 2. Исполнители (разработчики)
+        const e1 = insertUser.run('Максим Морозов', 'executor@example.com', executorHash, config.ROLES.EXECUTOR);
+        const e2 = insertUser.run('Артем Васильев', 'executor2@example.com', executorHash, config.ROLES.EXECUTOR);
+
+        // 3. Проверяющие (рецензенты / QA)
+        const r1 = insertUser.run('Анна Новикова', 'reviewer@example.com', reviewerHash, config.ROLES.REVIEWER);
+        const r2 = insertUser.run('Елена Соколова', 'reviewer2@example.com', reviewerHash, config.ROLES.REVIEWER);
+
+        // Добавим демонстрационные задачи с назначенными исполнителями и проверяющими
         const insertTask = db.prepare(`
             INSERT INTO tasks (title, description, due_date, status, creator_id, executor_id, reviewer_id, review_comment)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         insertTask.run(
-            'Разработать модуль аутентификации JWT',
-            'Реализовать временные ключи и сессии',
+            'Реализация ролевой модели (RBAC) и JWT',
+            'Настроить проверку ролей руководителя, исполнителя и проверяющего на временных ключах',
             '2026-10-15',
             config.TASK_STATUSES.IN_REVIEW,
-            m.lastInsertRowid,
-            e.lastInsertRowid,
-            r.lastInsertRowid,
-            'Код готов, отправлен на проверку'
+            m1.lastInsertRowid,
+            e1.lastInsertRowid,
+            r1.lastInsertRowid,
+            'Реализация завершена, отправлено на ревью'
         );
 
         insertTask.run(
-            'Настроить структурированное логирование',
-            'Подключить Winston с форматом JSON и трейсингом RequestId',
+            'Настройка структурированного логирования',
+            'Подключить логирование Winston в формате JSON со сквозным Request ID',
             '2026-10-20',
             config.TASK_STATUSES.IN_PROGRESS,
-            m.lastInsertRowid,
-            e.lastInsertRowid,
-            r.lastInsertRowid,
+            m1.lastInsertRowid,
+            e1.lastInsertRowid,
+            r1.lastInsertRowid,
             null
         );
 
         insertTask.run(
-            'Подготовить отчет по Лабораторной работе №3',
-            'Составить пояснительную записку и схемы архитектуры',
+            'Подготовка документации и пояснительной записки',
+            'Описать архитектуру решения, обработку ошибок по RFC 7807 и защиту от брутфорса',
             '2026-10-25',
             config.TASK_STATUSES.PENDING,
-            m.lastInsertRowid,
-            e.lastInsertRowid,
-            r.lastInsertRowid,
+            m1.lastInsertRowid,
+            e2.lastInsertRowid,
+            r2.lastInsertRowid,
             null
         );
     }

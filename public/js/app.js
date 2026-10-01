@@ -6,7 +6,6 @@ let allTasks = [];
 let allUsers = [];
 let currentFilter = 'all';
 let searchQuery = '';
-let myTasksOnly = false;
 let flatpickrCreate = null;
 let flatpickrEdit = null;
 
@@ -16,12 +15,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     await initAuth();
 
-    // Если нет сохраненного пользователя, автоматически логиним как Руководитель для быстрого старта
-    if (!currentUser) {
-        await quickLogin('manager');
-    } else {
+    if (currentUser) {
         await loadUsers();
         await loadTasks();
+    } else {
+        // По умолчанию показываем состояние гостя или выполняем вход под руководителем
+        const savedToken = ApiClient.getAccessToken();
+        if (savedToken) {
+            await loadUsers();
+            await loadTasks();
+        } else {
+            renderTasks([]);
+        }
     }
 });
 
@@ -46,7 +51,7 @@ function initDatepickers() {
         });
 
         document.getElementById('btn-clear-date')?.addEventListener('click', () => {
-            flatpickrCreate.clear();
+            if (flatpickrCreate) flatpickrCreate.clear();
         });
     }
 }
@@ -69,7 +74,7 @@ function setupEventListeners() {
     document.getElementById('btn-confirm-delete')?.addEventListener('click', handleConfirmDelete);
     document.getElementById('btn-reset-form')?.addEventListener('click', resetCreateForm);
 
-    // Фильтры
+    // Фильтры по статусам
     document.querySelectorAll('.filter-tab').forEach(tab => {
         tab.addEventListener('click', (e) => {
             document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
@@ -80,7 +85,7 @@ function setupEventListeners() {
         });
     });
 
-    // Поиск
+    // Живой поиск
     const searchInput = document.getElementById('search-input');
     const btnClearSearch = document.getElementById('btn-clear-search');
 
@@ -88,7 +93,7 @@ function setupEventListeners() {
     searchInput?.addEventListener('input', (e) => {
         clearTimeout(debounceTimer);
         searchQuery = e.target.value;
-        btnClearSearch.style.display = searchQuery ? 'block' : 'none';
+        if (btnClearSearch) btnClearSearch.style.display = searchQuery ? 'block' : 'none';
         debounceTimer = setTimeout(() => {
             loadTasks();
         }, 300);
@@ -100,16 +105,10 @@ function setupEventListeners() {
         btnClearSearch.style.display = 'none';
         loadTasks();
     });
-
-    // Чекбокс "Только мои задачи"
-    document.getElementById('my-tasks-only')?.addEventListener('change', (e) => {
-        myTasksOnly = e.target.checked;
-        loadTasks();
-    });
 }
 
 /**
- * Загрузка пользователей для списков назначения исполнителей/проверяющих
+ * Загрузка пользователей из БД для назначения исполнителей и проверяющих
  */
 async function loadUsers() {
     if (!currentUser) return;
@@ -122,14 +121,16 @@ async function loadUsers() {
         const editExecSelect = document.getElementById('edit-executor');
         const editRevSelect = document.getElementById('edit-reviewer');
 
+        // Исполнители (пользователи с ролью executor или manager)
         const execOptions = allUsers
             .filter(u => u.role === 'executor' || u.role === 'manager')
-            .map(u => `<option value="${u.id}">${u.name} (${u.role})</option>`)
+            .map(u => `<option value="${u.id}">${escapeHtml(u.name)} (${getRoleName(u.role)})</option>`)
             .join('');
 
+        // Проверяющие (пользователи с ролью reviewer или manager)
         const revOptions = allUsers
             .filter(u => u.role === 'reviewer' || u.role === 'manager')
-            .map(u => `<option value="${u.id}">${u.name} (${u.role})</option>`)
+            .map(u => `<option value="${u.id}">${escapeHtml(u.name)} (${getRoleName(u.role)})</option>`)
             .join('');
 
         if (execSelect) execSelect.innerHTML = '<option value="">-- Не назначен --</option>' + execOptions;
@@ -158,7 +159,6 @@ async function loadTasks() {
         const params = {};
         if (currentFilter !== 'all') params.status = currentFilter;
         if (searchQuery) params.search = searchQuery;
-        if (myTasksOnly) params.roleFilter = 'my';
 
         const res = await ApiClient.get('/api/tasks', params);
         allTasks = res.data || [];
@@ -173,7 +173,7 @@ async function loadTasks() {
 window.loadTasks = loadTasks;
 
 /**
- * Подсчет количества задач по статусам
+ * Подсчет счетчиков по вкладкам статусов
  */
 function updateCounters() {
     const counts = {
@@ -196,7 +196,7 @@ function updateCounters() {
 }
 
 /**
- * Отрисовка списка задач с элементами управления в соответствии с ролью
+ * Отрисовка списка задач с элементами управления под текущую роль
  */
 function renderTasks(tasks) {
     const listEl = document.getElementById('task-list');
@@ -204,9 +204,23 @@ function renderTasks(tasks) {
 
     if (!listEl) return;
 
+    if (!currentUser) {
+        listEl.innerHTML = '';
+        if (emptyState) {
+            emptyState.style.display = 'block';
+            emptyState.querySelector('.empty-title').textContent = 'Требуется авторизация';
+            emptyState.querySelector('.empty-subtitle').textContent = 'Нажмите кнопку быстрого входа вверху (Руководитель, Исполнитель или Проверяющий).';
+        }
+        return;
+    }
+
     if (!tasks || tasks.length === 0) {
         listEl.innerHTML = '';
-        if (emptyState) emptyState.style.display = 'block';
+        if (emptyState) {
+            emptyState.style.display = 'block';
+            emptyState.querySelector('.empty-title').textContent = 'Задачи не найдены';
+            emptyState.querySelector('.empty-subtitle').textContent = 'Создайте новую задачу или измените фильтр.';
+        }
         return;
     }
 
@@ -220,36 +234,36 @@ function renderTasks(tasks) {
         rejected: 'На доработке'
     };
 
-    const role = currentUser ? currentUser.role : null;
+    const role = currentUser.role;
 
     listEl.innerHTML = tasks.map(t => {
-        const creatorName = t.creator ? t.creator.name : 'Неизвестен';
-        const execName = t.executor ? t.executor.name : 'Не назначен';
-        const revName = t.reviewer ? t.reviewer.name : 'Не назначен';
+        const creatorName = t.creator ? t.creator.name : 'Дмитрий Ковалев';
+        const execName = t.executor ? t.executor.name : '<span style="color:#94a3b8">Не назначен</span>';
+        const revName = t.reviewer ? t.reviewer.name : '<span style="color:#94a3b8">Не назначен</span>';
         const dueDate = t.dueDate ? new Date(t.dueDate).toLocaleDateString('ru-RU') : 'Бессрочно';
 
-        // Формирование кнопок действий в зависимости от роли (RBAC на клиенте)
+        // Формирование кнопок в зависимости от роли (RBAC)
         let actionsHtml = '';
 
         if (role === 'manager') {
-            // Руководитель имеет полный доступ
+            // Руководитель: редактирование и удаление
             actionsHtml = `
                 <button class="btn btn-sm btn-secondary" onclick="openEditModal(${t.id})">✏️ Редактировать</button>
                 <button class="btn btn-sm btn-danger" onclick="openDeleteModal(${t.id}, '${escapeHtml(t.title)}')">🗑️ Удалить</button>
             `;
         } else if (role === 'executor') {
-            // Исполнитель
+            // Исполнитель: взятие в работу и сдача на проверку
             if (t.status === 'pending') {
-                actionsHtml += `<button class="btn btn-sm btn-primary" onclick="patchTaskStatus(${t.id}, 'in_progress')">▶️ Взять в работу</button>`;
+                actionsHtml = `<button class="btn btn-sm btn-primary" onclick="patchTaskStatus(${t.id}, 'in_progress')">▶️ Взять в работу</button>`;
             } else if (t.status === 'in_progress') {
-                actionsHtml += `<button class="btn btn-sm btn-warning" onclick="patchTaskStatus(${t.id}, 'in_review')">📤 Сдать на проверку</button>`;
+                actionsHtml = `<button class="btn btn-sm btn-warning" onclick="patchTaskStatus(${t.id}, 'in_review')">📤 Сдать на проверку</button>`;
             } else if (t.status === 'rejected') {
-                actionsHtml += `<button class="btn btn-sm btn-primary" onclick="patchTaskStatus(${t.id}, 'in_progress')">🛠️ Взять на исправление</button>`;
+                actionsHtml = `<button class="btn btn-sm btn-primary" onclick="patchTaskStatus(${t.id}, 'in_progress')">🛠️ Взять на исправление</button>`;
             }
         } else if (role === 'reviewer') {
-            // Проверяющий
+            // Проверяющий: проверка и утверждение/отклонение
             if (t.status === 'in_review') {
-                actionsHtml += `<button class="btn btn-sm btn-primary" onclick="openReviewModal(${t.id}, '${escapeHtml(t.title)}')">🔍 Проверить работу</button>`;
+                actionsHtml = `<button class="btn btn-sm btn-primary" onclick="openReviewModal(${t.id}, '${escapeHtml(t.title)}')">🔍 Проверить работу</button>`;
             }
         }
 
@@ -268,8 +282,8 @@ function renderTasks(tasks) {
                 <div class="task-meta-grid">
                     <span class="meta-item">📅 Срок: <strong>${dueDate}</strong></span>
                     <span class="meta-item">👔 Создал: <strong>${escapeHtml(creatorName)}</strong></span>
-                    <span class="meta-item">🔨 Исполнитель: <strong>${escapeHtml(execName)}</strong></span>
-                    <span class="meta-item">🔍 Проверяющий: <strong>${escapeHtml(revName)}</strong></span>
+                    <span class="meta-item">🔨 Исполнитель: <strong>${execName}</strong></span>
+                    <span class="meta-item">🔍 Проверяющий: <strong>${revName}</strong></span>
                 </div>
 
                 ${t.reviewComment ? `
@@ -296,28 +310,32 @@ function renderTasks(tasks) {
 }
 
 /**
- * Создание задачи (Руководитель)
+ * Создание новой задачи Руководителем
  */
 async function handleCreateTask(e) {
     e.preventDefault();
     const form = e.target;
     const errorBox = document.getElementById('form-validation-errors');
-    errorBox.style.display = 'none';
+    if (errorBox) errorBox.style.display = 'none';
 
     const formData = new FormData(form);
 
     try {
         await ApiClient.post('/api/tasks', formData);
-        showToast('Задача успешно создана!', 'success');
+        showToast('Задача успешно создана и назначена!', 'success');
         resetCreateForm();
-        loadTasks();
+        await loadTasks();
     } catch (err) {
         let msg = err.message;
         if (err.errors && err.errors.length) {
             msg = err.errors.map(e => e.message).join('; ');
         }
-        errorBox.textContent = msg;
-        errorBox.style.display = 'block';
+        if (errorBox) {
+            errorBox.textContent = msg;
+            errorBox.style.display = 'block';
+        } else {
+            showToast(msg, 'error');
+        }
     }
 }
 
@@ -335,15 +353,15 @@ function resetCreateForm() {
 async function patchTaskStatus(taskId, newStatus) {
     try {
         await ApiClient.patch(`/api/tasks/${taskId}`, { status: newStatus });
-        showToast(`Статус задачи #${taskId} успешно обновлен`, 'success');
-        loadTasks();
+        showToast('Статус задачи обновлен', 'success');
+        await loadTasks();
     } catch (err) {
         showToast(err.message, 'error');
     }
 }
 
 /**
- * Модальное окно проверки / рецензирования (Проверяющий)
+ * Модальное окно рецензирования (Проверяющий)
  */
 function openReviewModal(taskId, title) {
     document.getElementById('review-task-id').value = taskId;
@@ -376,8 +394,8 @@ async function handleReviewTask(e) {
     try {
         await ApiClient.patch(`/api/tasks/${taskId}`, { status, reviewComment });
         closeReviewModal();
-        showToast('Решение по проверке задачи зафиксировано', 'success');
-        loadTasks();
+        showToast('Решение по проверке зафиксировано', 'success');
+        await loadTasks();
     } catch (err) {
         alert(err.message);
     }
@@ -399,7 +417,10 @@ async function openEditModal(taskId) {
         if (flatpickrEdit) flatpickrEdit.setDate(task.dueDate || '');
 
         if (task.executor) document.getElementById('edit-executor').value = task.executor.id;
+        else document.getElementById('edit-executor').value = '';
+
         if (task.reviewer) document.getElementById('edit-reviewer').value = task.reviewer.id;
+        else document.getElementById('edit-reviewer').value = '';
 
         const attachBox = document.getElementById('current-attachment-box');
         if (task.attachment) {
@@ -429,7 +450,7 @@ async function handleEditTask(e) {
         await ApiClient.put(`/api/tasks/${taskId}`, formData);
         closeEditModal();
         showToast('Изменения задачи сохранены', 'success');
-        loadTasks();
+        await loadTasks();
     } catch (err) {
         alert(err.message);
     }
@@ -455,7 +476,7 @@ async function handleConfirmDelete() {
         await ApiClient.delete(`/api/tasks/${taskToDeleteId}`);
         closeDeleteModal();
         showToast('Задача успешно удалена', 'success');
-        loadTasks();
+        await loadTasks();
     } catch (err) {
         showToast(err.message, 'error');
     }
@@ -476,7 +497,7 @@ function showToast(message, type = 'info') {
 
     setTimeout(() => {
         toast.remove();
-    }, 4000);
+    }, 3500);
 }
 
 function showGlobalAlert(message) {

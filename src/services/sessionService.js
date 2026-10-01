@@ -6,15 +6,20 @@ const logger = require('../logger');
 
 function parseDeviceName(userAgent = '') {
     if (!userAgent) return 'Неизвестное устройство';
-    if (userAgent.includes('Mobile')) {
-        if (userAgent.includes('Android')) return 'Android Mobile';
-        if (userAgent.includes('iPhone')) return 'Apple iPhone';
-        return 'Мобильное устройство';
-    }
-    if (userAgent.includes('Windows')) return 'Windows PC';
-    if (userAgent.includes('Macintosh')) return 'macOS Workstation';
-    if (userAgent.includes('Linux')) return 'Linux PC';
-    return 'Браузер / Web-клиент';
+    let browser = 'Веб-браузер';
+    if (userAgent.includes('Edg/')) browser = 'Microsoft Edge';
+    else if (userAgent.includes('Chrome/')) browser = 'Google Chrome';
+    else if (userAgent.includes('Safari/') && !userAgent.includes('Chrome/')) browser = 'Apple Safari';
+    else if (userAgent.includes('Firefox/')) browser = 'Mozilla Firefox';
+
+    let os = 'ПК';
+    if (userAgent.includes('Windows')) os = 'Windows';
+    else if (userAgent.includes('Macintosh')) os = 'macOS';
+    else if (userAgent.includes('Android')) os = 'Android';
+    else if (userAgent.includes('iPhone')) os = 'iPhone';
+    else if (userAgent.includes('Linux')) os = 'Linux';
+
+    return `${browser} (${os})`;
 }
 
 class SessionService {
@@ -22,6 +27,15 @@ class SessionService {
      * Создание новой активной сессии пользователя
      */
     static createSession({ userId, refreshToken, ipAddress, userAgent }) {
+        // Если с этого же клиента (браузера и IP) уже была сессия, обновляем/закрываем старую
+        if (userAgent && ipAddress) {
+            db.prepare(`
+                UPDATE active_sessions 
+                SET is_revoked = 1 
+                WHERE user_id = ? AND ip_address = ? AND user_agent = ? AND is_revoked = 0
+            `).run(userId, ipAddress, userAgent);
+        }
+
         const sessionId = crypto.randomUUID();
         const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
         const deviceName = parseDeviceName(userAgent);

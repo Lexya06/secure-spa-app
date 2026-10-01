@@ -1,14 +1,24 @@
 /**
- * Управление аутентификацией, ролями, сессиями и восстановлением пароля
+ * Модуль управления аутентификацией, ролями и активными сессиями
  */
 
 let currentUser = null;
 
+// Предустановленные демо-пользователи для удобства демонстрации ролей на защите
 const DEMO_ACCOUNTS = {
     manager: { email: 'manager@example.com', pass: 'Manager123!' },
     executor: { email: 'executor@example.com', pass: 'Executor123!' },
     reviewer: { email: 'reviewer@example.com', pass: 'Reviewer123!' }
 };
+
+function getRoleName(role) {
+    const roleNames = {
+        manager: 'Руководитель',
+        executor: 'Исполнитель',
+        reviewer: 'Проверяющий'
+    };
+    return roleNames[role] || role;
+}
 
 /**
  * Инициализация аутентификации при загрузке приложения
@@ -37,14 +47,13 @@ async function initAuth() {
 }
 
 /**
- * Обновление интерфейса в зависимости от роли и состояния входа
+ * Обновление интерфейса в зависимости от текущей роли
  */
 function updateAuthUI() {
     const navGuest = document.getElementById('nav-guest');
     const navAuth = document.getElementById('nav-auth');
     const roleBanner = document.getElementById('role-banner');
     const managerCreate = document.getElementById('manager-create-section');
-    const btnAudit = document.getElementById('btn-audit-logs');
 
     if (currentUser) {
         navGuest.style.display = 'none';
@@ -53,15 +62,9 @@ function updateAuthUI() {
         document.getElementById('nav-user-name').textContent = currentUser.name;
         const roleBadge = document.getElementById('nav-role-badge');
         roleBadge.className = `role-pill role-${currentUser.role}`;
+        roleBadge.textContent = getRoleName(currentUser.role);
 
-        const roleNames = {
-            manager: 'Руководитель',
-            executor: 'Исполнитель',
-            reviewer: 'Проверяющий'
-        };
-        roleBadge.textContent = roleNames[currentUser.role] || currentUser.role;
-
-        // Показ баннера роли
+        // Информационный баннер текущей роли
         roleBanner.style.display = 'flex';
         roleBanner.className = `role-banner ${currentUser.role}`;
 
@@ -71,41 +74,48 @@ function updateAuthUI() {
 
         if (currentUser.role === 'manager') {
             bannerIcon.textContent = '👔';
-            bannerTitle.textContent = 'Режим: Руководитель (Manager)';
-            bannerDesc.textContent = 'Вам доступны: создание задач, распределение исполнителей/проверяющих, редактирование любых полей, удаление задач и просмотр журнала аудита.';
+            bannerTitle.textContent = `Вы вошли как Руководитель (${currentUser.name})`;
+            bannerDesc.textContent = 'Вам доступны: создание задач, назначение исполнителей и проверяющих, редактирование любых полей и удаление задач.';
             managerCreate.style.display = 'block';
-            btnAudit.style.display = 'inline-block';
         } else if (currentUser.role === 'executor') {
             bannerIcon.textContent = '🔨';
-            bannerTitle.textContent = 'Режим: Исполнитель (Executor)';
-            bannerDesc.textContent = 'Вам доступны: взятие задач в работу (Ожидает ➔ В работе) и передача на проверку (В работе ➔ На проверке). Самостоятельное закрытие и удаление задач запрещено.';
+            bannerTitle.textContent = `Вы вошли как Исполнитель (${currentUser.name})`;
+            bannerDesc.textContent = 'Вам доступны: взятие назначенных задач в работу (Ожидает ➔ В работе) и отправка на проверку (В работе ➔ На проверке). Удаление и самостоятельное закрытие задач запрещено.';
             managerCreate.style.display = 'none';
-            btnAudit.style.display = 'none';
         } else if (currentUser.role === 'reviewer') {
             bannerIcon.textContent = '🔍';
-            bannerTitle.textContent = 'Режим: Проверяющий (Reviewer)';
-            bannerDesc.textContent = 'Вам доступны: проверка задач в статусе «На проверке», утверждение (➔ Завершено) или возврат на доработку с замечаниями (➔ Доработка).';
+            bannerTitle.textContent = `Вы вошли как Проверяющий (${currentUser.name})`;
+            bannerDesc.textContent = 'Вам доступны: проверка задач в статусе «На проверке», утверждение (➔ Завершено) или возврат на доработку (➔ На доработке) с обязательным комментарием замечаний.';
             managerCreate.style.display = 'none';
-            btnAudit.style.display = 'none';
         }
     } else {
         navGuest.style.display = 'flex';
         navAuth.style.display = 'none';
         roleBanner.style.display = 'none';
         managerCreate.style.display = 'none';
-        btnAudit.style.display = 'none';
     }
 }
 
 /**
- * Быстрый вход для демонстрации лабораторной работы
+ * Быстрый вход под одной из 3 ролей (без создания лишних сессий)
  */
 async function quickLogin(role) {
     const creds = DEMO_ACCOUNTS[role];
     if (!creds) return;
 
     try {
-        showToast(`Выполняется вход под ролью "${role}"...`, 'info');
+        // Если уже выполнен вход другим аккаунтом, завершаем старую сессию
+        if (currentUser && currentUser.email !== creds.email) {
+            try {
+                await ApiClient.post('/api/auth/logout', {});
+            } catch {
+                // Игнорируем ошибку логаута
+            }
+        }
+        ApiClient.clearTokens();
+        currentUser = null;
+
+        showToast(`Выполняется вход под ролью "${getRoleName(role)}"...`, 'info');
         const res = await ApiClient.post('/api/auth/login', {
             email: creds.email,
             password: creds.pass
@@ -116,10 +126,10 @@ async function quickLogin(role) {
         localStorage.setItem('user_info', JSON.stringify(currentUser));
 
         updateAuthUI();
-        showToast(`Успешный вход: ${currentUser.name} (${currentUser.role})`, 'success');
+        showToast(`Вы вошли как ${currentUser.name} (${getRoleName(currentUser.role)})`, 'success');
 
-        if (window.loadTasks) window.loadTasks();
-        if (window.loadUsers) window.loadUsers();
+        if (window.loadUsers) await window.loadUsers();
+        if (window.loadTasks) await window.loadTasks();
     } catch (err) {
         showToast(err.message, 'error');
     }
@@ -137,6 +147,11 @@ async function handleLoginSubmit(event) {
     errorBox.style.display = 'none';
 
     try {
+        if (currentUser) {
+            try { await ApiClient.post('/api/auth/logout', {}); } catch {}
+        }
+        ApiClient.clearTokens();
+
         const res = await ApiClient.post('/api/auth/login', { email, password });
         ApiClient.setTokens(res.data.accessToken, res.data.refreshToken);
         currentUser = res.data.user;
@@ -145,10 +160,10 @@ async function handleLoginSubmit(event) {
         closeLoginModal();
         form.reset();
         updateAuthUI();
-        showToast('Вход успешно выполнен', 'success');
+        showToast(`Вход выполнен: ${currentUser.name}`, 'success');
 
-        if (window.loadTasks) window.loadTasks();
-        if (window.loadUsers) window.loadUsers();
+        if (window.loadUsers) await window.loadUsers();
+        if (window.loadTasks) await window.loadTasks();
     } catch (err) {
         errorBox.textContent = err.message;
         errorBox.style.display = 'block';
@@ -179,8 +194,8 @@ async function handleRegisterSubmit(event) {
         updateAuthUI();
         showToast('Регистрация успешна! Добро пожаловать.', 'success');
 
-        if (window.loadTasks) window.loadTasks();
-        if (window.loadUsers) window.loadUsers();
+        if (window.loadUsers) await window.loadUsers();
+        if (window.loadTasks) await window.loadTasks();
     } catch (err) {
         let msg = err.message;
         if (err.errors && err.errors.length) {
@@ -192,7 +207,7 @@ async function handleRegisterSubmit(event) {
 }
 
 /**
- * Выход из системы (отзыв токена и сессии)
+ * Выход из системы
  */
 async function handleLogout() {
     try {
@@ -224,9 +239,9 @@ async function handleForgotSubmit(event) {
         const res = await ApiClient.post('/api/auth/forgot-password', { email });
         let html = `<strong>${res.message}</strong>`;
         if (res.debugToken) {
-            html += `<br><br><span style="font-size: 11px; color: #475569;">[Тест/демо] Одноразовый токен: <code>${res.debugToken}</code></span>`;
+            html += `<br><br><span style="font-size: 12px; color: #475569;">🔑 Одноразовый код сброса: <code>${res.debugToken}</code></span>`;
             if (res.previewUrl) {
-                html += `<br><a href="${res.previewUrl}" target="_blank" style="color: #2563eb; font-size: 12px;">Посмотреть сгенерированное письмо Ethereal</a>`;
+                html += `<br><a href="${res.previewUrl}" target="_blank" style="color: #2563eb; font-size: 12px; display: inline-block; margin-top: 4px;">Просмотреть отправленное письмо (Ethereal)</a>`;
             }
             html += `<br><br><button type="button" class="btn btn-sm btn-primary" onclick="openResetModalWithToken('${res.debugToken}')">Ввести новый пароль</button>`;
         }
@@ -262,44 +277,50 @@ async function handleResetPasswordSubmit(event) {
 }
 
 /**
- * Загрузка активных сессий
+ * Загрузка активных сессий (устройств) текущего пользователя
  */
 async function loadSessions() {
     const listEl = document.getElementById('sessions-list');
-    listEl.innerHTML = '<p>Загрузка сессий...</p>';
+    listEl.innerHTML = '<p>Загрузка списка сессий...</p>';
 
     try {
         const res = await ApiClient.get('/api/auth/sessions');
         if (!res.data || res.data.length === 0) {
-            listEl.innerHTML = '<p>Активных сессий нет</p>';
+            listEl.innerHTML = '<p>Активных сессий не найдено.</p>';
             return;
         }
 
-        listEl.innerHTML = res.data.map(s => `
-            <div class="session-card ${s.isCurrent ? 'current' : ''}">
-                <div class="session-info">
-                    <strong>${s.deviceName} ${s.isCurrent ? '<span class="current-device-tag">Текущее устройство</span>' : ''}</strong>
-                    <div class="session-meta">
-                        IP: ${s.ipAddress || 'Неизвестен'} | Активность: ${new Date(s.lastActiveAt).toLocaleString('ru-RU')}
+        listEl.innerHTML = res.data.map(s => {
+            const lastActive = s.lastActiveAt 
+                ? new Date(s.lastActiveAt).toLocaleString('ru-RU')
+                : 'Только что';
+
+            return `
+                <div class="session-card ${s.isCurrent ? 'current' : ''}">
+                    <div class="session-info">
+                        <strong>${s.deviceName} ${s.isCurrent ? '<span class="current-device-tag">Текущее устройство</span>' : ''}</strong>
+                        <div class="session-meta">
+                            IP: <code>${s.ipAddress || '127.0.0.1'}</code> &bull; Последняя активность: ${lastActive}
+                        </div>
                     </div>
+                    ${!s.isCurrent ? `
+                        <button class="btn btn-sm btn-danger" onclick="revokeSingleSession('${s.id}')">
+                            Завершить
+                        </button>
+                    ` : '<span style="font-size: 11px; color: #16a34a; font-weight: 600;">Активна</span>'}
                 </div>
-                ${!s.isCurrent ? `
-                    <button class="btn btn-sm btn-danger" onclick="revokeSingleSession('${s.id}')">
-                        Завершить
-                    </button>
-                ` : ''}
-            </div>
-        `).join('');
+            `;
+        }).join('');
     } catch (err) {
         listEl.innerHTML = `<p class="modal-warning-text">${err.message}</p>`;
     }
 }
 
 async function revokeSingleSession(sessionId) {
-    if (!confirm('Завершить эту сессию на удаленном устройстве?')) return;
+    if (!confirm('Завершить эту сессию на выбранном устройстве?')) return;
     try {
         await ApiClient.delete(`/api/auth/sessions/${sessionId}`);
-        showToast('Сессия отозвана', 'success');
+        showToast('Сессия успешно отозвана', 'success');
         loadSessions();
     } catch (err) {
         showToast(err.message, 'error');
@@ -307,7 +328,7 @@ async function revokeSingleSession(sessionId) {
 }
 
 async function revokeOtherSessions() {
-    if (!confirm('Отозвать сессии на всех остальных устройствах?')) return;
+    if (!confirm('Завершить сессии на всех остальных устройствах?')) return;
     try {
         const res = await ApiClient.post('/api/auth/sessions/revoke-others', {});
         showToast(res.message, 'success');
@@ -317,45 +338,7 @@ async function revokeOtherSessions() {
     }
 }
 
-/**
- * Загрузка журнала аудита безопасности (для Руководителя)
- */
-async function loadAuditLogs() {
-    const tbody = document.getElementById('audit-table-body');
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Загрузка логов...</td></tr>';
-
-    try {
-        const res = await ApiClient.get('/api/logs/audit?limit=50');
-        if (!res.data || res.data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Журнал аудита пуст</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = res.data.map(log => {
-            const time = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('ru-RU') : '-';
-            const action = log.action || log.message || '-';
-            const user = log.user ? `${log.user.name || log.user.email || '#' + log.user.id}` : '-';
-            const ip = log.ip || '-';
-            const status = log.status || 'INFO';
-            const details = log.details ? JSON.stringify(log.details) : '';
-
-            return `
-                <tr>
-                    <td>${time}</td>
-                    <td><code>${action}</code></td>
-                    <td>${user}</td>
-                    <td>${ip}</td>
-                    <td><strong>${status}</strong></td>
-                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${details}">${details}</td>
-                </tr>
-            `;
-        }).join('');
-    } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="6" style="color: red; text-align: center;">${err.message}</td></tr>`;
-    }
-}
-
-// Модальные окна helper functions
+// Функции управления модальными окнами
 function openLoginModal() { document.getElementById('login-modal').classList.add('active'); }
 function closeLoginModal() { document.getElementById('login-modal').classList.remove('active'); }
 
@@ -383,16 +366,10 @@ function openSessionsModal() {
 }
 function closeSessionsModal() { document.getElementById('sessions-modal').classList.remove('active'); }
 
-function openAuditModal() {
-    document.getElementById('audit-modal').classList.add('active');
-    loadAuditLogs();
-}
-function closeAuditModal() { document.getElementById('audit-modal').classList.remove('active'); }
-
 // Слушатель события истечения сессии
 window.addEventListener('auth:expired', () => {
     currentUser = null;
     updateAuthUI();
-    showToast('Срок действия сессии истек. Пожалуйста, выполните вход заново.', 'error');
+    showToast('Срок действия сессии истек. Войдите заново.', 'error');
     openLoginModal();
 });

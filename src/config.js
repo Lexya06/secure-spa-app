@@ -3,7 +3,9 @@ const path = require('path');
 module.exports = {
     PORT: process.env.PORT || 3000,
     NODE_ENV: process.env.NODE_ENV || 'development',
-    DB_PATH: process.env.DB_PATH || path.join(__dirname, '..', 'secure_todo.db'),
+    DB_PATH: process.env.DB_PATH || (process.env.NODE_ENV === 'test' 
+        ? path.join(__dirname, '..', 'test_todo.db') 
+        : path.join(__dirname, '..', 'secure_todo.db')),
     UPLOADS_DIR: process.env.UPLOADS_DIR || path.join(__dirname, '..', 'uploads'),
     LOGS_DIR: process.env.LOGS_DIR || path.join(__dirname, '..', 'logs'),
 

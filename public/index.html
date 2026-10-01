@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Лабораторная №3 - Защищенная система управления задачами (RBAC, JWT, Аудит)</title>
+    <title>Лабораторная работа №3 - СПП (RBAC, JWT, Сессии, Восстановление)</title>
     
     <!-- Flatpickr (выбор даты) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
@@ -14,7 +14,7 @@
 </head>
 <body>
 
-<!-- Контейнер для всплывающих уведомлений (Toasts) -->
+<!-- Контейнер для всплывающих уведомлений -->
 <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
 <!-- Верхняя навигационная панель -->
@@ -23,28 +23,28 @@
         <div class="nav-brand">
             <span class="nav-logo">🛡️</span>
             <div>
-                <span class="brand-title">SecureTaskManager</span>
+                <span class="brand-title">Менеджер задач</span>
                 <span class="brand-badge">СПП ЛР3</span>
             </div>
         </div>
 
-        <!-- Кнопки быстрого переключения ролей для удобства преподавателя на защите -->
-        <div class="demo-switchers" id="demo-switchers">
-            <span class="demo-label">Быстрый вход:</span>
-            <button type="button" class="btn-demo btn-demo-manager" onclick="quickLogin('manager')">👔 Руководитель</button>
-            <button type="button" class="btn-demo btn-demo-executor" onclick="quickLogin('executor')">🔨 Исполнитель</button>
-            <button type="button" class="btn-demo btn-demo-reviewer" onclick="quickLogin('reviewer')">🔍 Проверяющий</button>
+        <!-- Кнопки быстрого входа под 3 ролями для удобства проверки на защите -->
+        <div class="demo-switchers">
+            <span class="demo-label">Вход под ролью:</span>
+            <button type="button" class="btn-demo btn-demo-manager" onclick="quickLogin('manager')">👔 Дмитрий (Руководитель)</button>
+            <button type="button" class="btn-demo btn-demo-executor" onclick="quickLogin('executor')">🔨 Максим (Исполнитель)</button>
+            <button type="button" class="btn-demo btn-demo-reviewer" onclick="quickLogin('reviewer')">🔍 Анна (Проверяющий)</button>
         </div>
 
         <!-- Блок профиля пользователя -->
-        <div class="user-nav-section" id="user-nav-section">
+        <div class="user-nav-section">
             <div id="nav-guest" class="nav-guest">
                 <button class="btn btn-outline-primary" onclick="openLoginModal()">Вход</button>
                 <button class="btn btn-primary" onclick="openRegisterModal()">Регистрация</button>
             </div>
             <div id="nav-auth" class="nav-auth" style="display: none;">
                 <div class="user-badge">
-                    <span class="user-avatar" id="nav-avatar">👤</span>
+                    <span class="user-avatar">👤</span>
                     <div class="user-info-text">
                         <span class="user-name" id="nav-user-name">Загрузка...</span>
                         <span class="role-pill" id="nav-role-badge">Роль</span>
@@ -53,9 +53,6 @@
                 <div class="nav-actions">
                     <button type="button" class="btn-icon-nav" onclick="openSessionsModal()" title="Контроль активных сессий">
                         💻 Сессии
-                    </button>
-                    <button type="button" class="btn-icon-nav" id="btn-audit-logs" onclick="openAuditModal()" style="display: none;" title="Журнал аудита безопасности">
-                        📋 Аудит
                     </button>
                     <button type="button" class="btn-icon-nav btn-logout" onclick="handleLogout()" title="Выйти из системы">
                         🚪 Выход
@@ -83,35 +80,32 @@
         <button type="button" class="alert-close" onclick="hideGlobalAlert()">✕</button>
     </div>
 
-    <!-- Секция создания задачи (Только для Руководителя) -->
+    <!-- Секция создания задачи (Доступна только Руководителю) -->
     <section id="manager-create-section" class="card form-card" style="display: none;">
-        <div class="card-header-flex">
-            <h2>➕ Создание новой задачи (Права Руководителя)</h2>
-        </div>
+        <h2>➕ Создание новой задачи (Права Руководителя)</h2>
         <form id="create-task-form" novalidate>
             <div id="form-validation-errors" class="validation-summary" style="display: none;"></div>
 
             <div class="form-group">
                 <label for="task-title">Название задачи <span class="required-star">*</span></label>
-                <input type="text" id="task-title" name="title" placeholder="Введите название задачи..." required autocomplete="off">
-                <div class="field-error-msg" id="error-task-title"></div>
+                <input type="text" id="task-title" name="title" placeholder="Введите краткое название задачи..." required autocomplete="off">
             </div>
 
             <div class="form-group">
-                <label for="task-desc">Подробное описание:</label>
-                <textarea id="task-desc" name="description" rows="2" placeholder="Опишите требования к задаче..."></textarea>
+                <label for="task-desc">Описание задачи:</label>
+                <textarea id="task-desc" name="description" rows="2" placeholder="Опишите технические требования к задаче..."></textarea>
             </div>
 
             <div class="form-row">
                 <div class="form-group flex-1">
-                    <label for="task-executor">Назначить исполнителя:</label>
+                    <label for="task-executor">🔨 Назначить исполнителя:</label>
                     <select id="task-executor" name="executorId">
                         <option value="">-- Выберите исполнителя --</option>
                     </select>
                 </div>
 
                 <div class="form-group flex-1">
-                    <label for="task-reviewer">Назначить проверяющего:</label>
+                    <label for="task-reviewer">🔍 Назначить проверяющего:</label>
                     <select id="task-reviewer" name="reviewerId">
                         <option value="">-- Выберите проверяющего --</option>
                     </select>
@@ -120,7 +114,7 @@
 
             <div class="form-row">
                 <div class="form-group flex-1">
-                    <label for="task-dueDate">Срок выполнения:</label>
+                    <label for="task-dueDate">📅 Срок выполнения:</label>
                     <div class="date-input-wrapper">
                         <input type="text" id="task-dueDate" name="dueDate" placeholder="Выберите дату..." readonly>
                         <button type="button" class="btn-clear" id="btn-clear-date" title="Очистить дату">✕</button>
@@ -128,34 +122,23 @@
                 </div>
 
                 <div class="form-group flex-1">
-                    <label for="task-status">Начальный статус:</label>
-                    <select id="task-status" name="status">
-                        <option value="pending">Ожидает</option>
-                        <option value="in_progress">В процессе</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label for="task-attachment">Прикрепить ТЗ / Файл:</label>
-                <div class="file-drop-area">
+                    <label for="task-attachment">📎 Прикрепить файл / ТЗ (до 15 МБ):</label>
                     <input type="file" id="task-attachment" name="attachment">
-                    <span class="file-hint">Максимальный размер: 15 МБ</span>
                 </div>
             </div>
 
             <div class="form-actions">
                 <button type="submit" id="btn-submit-task" class="btn btn-primary">
-                    💾 Создать задачу
+                    💾 Создать и назначить задачу
                 </button>
                 <button type="button" id="btn-reset-form" class="btn btn-secondary">
-                    Очистить
+                    Очистить форму
                 </button>
             </div>
         </form>
     </section>
 
-    <!-- Панель управления списком (фильтры, поиск, счетчики) -->
+    <!-- Панель управления списком (поиск и фильтры) -->
     <section class="controls-panel">
         <div class="search-box">
             <span class="search-icon">🔍</span>
@@ -180,7 +163,7 @@
                 Завершены <span class="counter" id="count-completed">0</span>
             </button>
             <button class="filter-tab" data-filter="rejected">
-                Доработка <span class="counter" id="count-rejected">0</span>
+                На доработке <span class="counter" id="count-rejected">0</span>
             </button>
         </div>
     </section>
@@ -189,18 +172,12 @@
     <section class="tasks-section">
         <div class="tasks-header">
             <h2>Список задач</h2>
-            <div class="role-scope-toggle" id="role-scope-toggle">
-                <label>
-                    <input type="checkbox" id="my-tasks-only">
-                    <span>Показывать только мои задачи</span>
-                </label>
-            </div>
         </div>
 
         <!-- Индикатор загрузки -->
         <div id="loading-spinner" class="loading-state" style="display: none;">
             <div class="spinner"></div>
-            <p>Загрузка данных с сервера...</p>
+            <p>Загрузка задач...</p>
         </div>
 
         <!-- Контейнер для отображения задач -->
@@ -210,12 +187,12 @@
         <div id="empty-state" class="empty-state" style="display: none;">
             <div class="empty-icon">📭</div>
             <p class="empty-title">Задачи не найдены</p>
-            <p class="empty-subtitle">Создайте задачу (под ролью Руководитель) или измените параметры фильтра.</p>
+            <p class="empty-subtitle">Войдите как Руководитель для создания задач или измените параметры фильтра.</p>
         </div>
     </section>
 </main>
 
-<!-- МОДАЛЬНОЕ ОКНО: АВТОРИЗАЦИЯ (ВХОД) -->
+<!-- МОДАЛЬНОЕ ОКНО: ВХОД -->
 <div id="login-modal" class="modal" aria-hidden="true">
     <div class="modal-backdrop" onclick="closeLoginModal()"></div>
     <div class="modal-dialog modal-sm">
@@ -264,7 +241,7 @@
 
                 <div class="form-group">
                     <label for="reg-name">ФИО / Имя:</label>
-                    <input type="text" id="reg-name" name="name" required placeholder="Иванов Иван">
+                    <input type="text" id="reg-name" name="name" required placeholder="Сергей Смирнов">
                 </div>
 
                 <div class="form-group">
@@ -282,7 +259,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="reg-password">Пароль (мин. 8 симв., цифры, заглавные):</label>
+                    <label for="reg-password">Пароль (мин. 8 символов, заглавная, цифра):</label>
                     <input type="password" id="reg-password" name="password" required autocomplete="new-password">
                 </div>
 
@@ -305,7 +282,7 @@
                 <button type="button" class="modal-close-btn" onclick="closeForgotModal()">✕</button>
             </div>
             <form id="forgot-form" novalidate>
-                <p class="modal-hint">Введите ваш email. На него будет отправлен одноразовый временный токен восстановления.</p>
+                <p class="modal-hint">Введите ваш email для получения одноразового кода восстановления.</p>
                 <div id="forgot-errors" class="validation-summary" style="display: none;"></div>
                 <div id="forgot-success" class="alert alert-success" style="display: none;"></div>
 
@@ -323,7 +300,7 @@
     </div>
 </div>
 
-<!-- МОДАЛЬНОЕ ОКНО: ВВОД НОВОГО ПАРОЛЯ ПО ТОКЕНУ -->
+<!-- МОДАЛЬНОЕ ОКНО: ВВОД НОВОГО ПАРОЛЯ -->
 <div id="reset-password-modal" class="modal" aria-hidden="true">
     <div class="modal-backdrop" onclick="closeResetModal()"></div>
     <div class="modal-dialog modal-sm">
@@ -336,7 +313,7 @@
                 <div id="reset-errors" class="validation-summary" style="display: none;"></div>
 
                 <div class="form-group">
-                    <label for="reset-token">Одноразовый токен из письма:</label>
+                    <label for="reset-token">Одноразовый токен:</label>
                     <input type="text" id="reset-token" name="token" required placeholder="Вставьте токен...">
                 </div>
 
@@ -347,69 +324,33 @@
 
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeResetModal()">Отмена</button>
-                    <button type="submit" id="btn-reset-pass-submit" class="btn btn-primary">Сохранить пароль</button>
+                    <button type="submit" id="btn-reset-pass-submit" class="btn btn-primary">Сохранить</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
-<!-- МОДАЛЬНОЕ ОКНО: КОНТРОЛЬ АКТИВНЫХ СЕССИЙ И ПОДКЛЮЧЕНИЙ -->
+<!-- МОДАЛЬНОЕ ОКНО: КОНТРОЛЬ АКТИВНЫХ СЕССИЙ (УСТРОЙСТВ) -->
 <div id="sessions-modal" class="modal" aria-hidden="true">
     <div class="modal-backdrop" onclick="closeSessionsModal()"></div>
     <div class="modal-dialog modal-md">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>💻 Контроль активных подключений</h3>
+                <h3>💻 Контроль активных сессий (устройств)</h3>
                 <button type="button" class="modal-close-btn" onclick="closeSessionsModal()">✕</button>
             </div>
             <div class="modal-body">
-                <p class="modal-hint">Список устройств, имеющих действительный токен доступа к вашему аккаунту:</p>
+                <p class="modal-hint">Список устройств с активными временными ключами доступа к вашему аккаунту:</p>
                 <div class="sessions-actions-bar">
                     <button type="button" class="btn btn-warning btn-sm" onclick="revokeOtherSessions()">
-                        🚫 Отозвать все другие сессии
+                        🚫 Завершить все остальные сессии
                     </button>
                 </div>
                 <div id="sessions-list" class="sessions-list"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeSessionsModal()">Закрыть</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- МОДАЛЬНОЕ ОКНО: ЖУРНАЛ АУДИТА БЕЗОПАСНОСТИ (РУКОВОДИТЕЛЬ) -->
-<div id="audit-modal" class="modal" aria-hidden="true">
-    <div class="modal-backdrop" onclick="closeAuditModal()"></div>
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>📋 Структурированный аудит безопасности</h3>
-                <button type="button" class="modal-close-btn" onclick="closeAuditModal()">✕</button>
-            </div>
-            <div class="modal-body">
-                <p class="modal-hint">Журнал событий аутентификации, блокировок, изменения задач и доступа к API:</p>
-                <div class="audit-table-wrapper">
-                    <table class="audit-table">
-                        <thead>
-                            <tr>
-                                <th>Время</th>
-                                <th>Событие</th>
-                                <th>Пользователь</th>
-                                <th>IP-адрес</th>
-                                <th>Статус</th>
-                                <th>Детали</th>
-                            </tr>
-                        </thead>
-                        <tbody id="audit-table-body">
-                            <tr><td colspan="6" style="text-align: center;">Загрузка логов...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeAuditModal()">Закрыть</button>
             </div>
         </div>
     </div>
@@ -426,24 +367,24 @@
             </div>
             <form id="review-task-form" novalidate>
                 <input type="hidden" id="review-task-id">
-                <p>Задача: <strong id="review-task-title"></strong></p>
+                <p style="margin-bottom: 14px;">Задача: <strong id="review-task-title"></strong></p>
 
                 <div class="form-group">
                     <label for="review-decision">Решение проверки:</label>
                     <select id="review-decision" name="status" onchange="toggleReviewCommentRequired()">
                         <option value="completed">✅ Принять (Завершить задачу)</option>
-                        <option value="rejected">↩️ Вернуть на доработку (Отклонить)</option>
+                        <option value="rejected">↩️ Вернуть на доработку с замечаниями</option>
                     </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="review-comment">Замечания / Комментарий проверяющего <span id="review-comment-star" style="display: none;" class="required-star">*</span>:</label>
-                    <textarea id="review-comment" name="reviewComment" rows="3" placeholder="Укажите комментарий к проверке..."></textarea>
+                    <label for="review-comment">Замечания проверяющего <span id="review-comment-star" style="display: none;" class="required-star">*</span>:</label>
+                    <textarea id="review-comment" name="reviewComment" rows="3" placeholder="Укажите комментарий к результатам работы..."></textarea>
                 </div>
 
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeReviewModal()">Отмена</button>
-                    <button type="submit" id="btn-save-review" class="btn btn-primary">Подтвердить решение</button>
+                    <button type="submit" id="btn-save-review" class="btn btn-primary">Подтвердить</button>
                 </div>
             </form>
         </div>
@@ -475,19 +416,19 @@
 
                 <div class="form-row">
                     <div class="form-group flex-1">
-                        <label for="edit-executor">Исполнитель:</label>
+                        <label for="edit-executor">🔨 Исполнитель:</label>
                         <select id="edit-executor" name="executorId"></select>
                     </div>
 
                     <div class="form-group flex-1">
-                        <label for="edit-reviewer">Проверяющий:</label>
+                        <label for="edit-reviewer">🔍 Проверяющий:</label>
                         <select id="edit-reviewer" name="reviewerId"></select>
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group flex-1">
-                        <label for="edit-dueDate">Срок выполнения:</label>
+                        <label for="edit-dueDate">📅 Срок выполнения:</label>
                         <input type="text" id="edit-dueDate" name="dueDate" readonly>
                     </div>
 
