@@ -29,11 +29,12 @@
         </div>
 
         <!-- Кнопки быстрого входа под 3 ролями для удобства проверки на защите -->
-        <div class="demo-switchers">
-            <span class="demo-label">Вход под ролью:</span>
+        <div class="demo-switchers" id="demo-switchers">
+            <span class="demo-label">Демо-вход:</span>
             <button type="button" class="btn-demo btn-demo-manager" onclick="quickLogin('manager')">👔 Дмитрий (Руководитель)</button>
             <button type="button" class="btn-demo btn-demo-executor" onclick="quickLogin('executor')">🔨 Максим (Исполнитель)</button>
             <button type="button" class="btn-demo btn-demo-reviewer" onclick="quickLogin('reviewer')">🔍 Анна (Проверяющий)</button>
+            <button type="button" class="btn-hide-demo" onclick="toggleDemoPanel(false)" title="Скрыть демонстрационную панель">✕</button>
         </div>
 
         <!-- Блок профиля пользователя -->
@@ -189,6 +190,11 @@
             <p class="empty-title">Задачи не найдены</p>
             <p class="empty-subtitle">Войдите как Руководитель для создания задач или измените параметры фильтра.</p>
         </div>
+        <footer class="app-footer">
+            <button type="button" id="btn-show-demo" class="demo-restore-link" onclick="toggleDemoPanel(true)" style="display: none;">
+                🔧 Включить демо-панель ролей
+            </button>
+        </footer>
     </section>
 </main>
 

@@ -27,6 +27,7 @@ async function initAuth() {
     const savedUser = localStorage.getItem('user_info');
     const token = ApiClient.getAccessToken();
 
+    initDemoPanelState();
     if (savedUser && token) {
         try {
             currentUser = JSON.parse(savedUser);
@@ -365,6 +366,36 @@ function openSessionsModal() {
     loadSessions();
 }
 function closeSessionsModal() { document.getElementById('sessions-modal').classList.remove('active'); }
+
+// Управление видимостью демонстрационной панели
+function toggleDemoPanel(show) {
+    const panel = document.getElementById('demo-switchers');
+    const restoreBtn = document.getElementById('btn-show-demo');
+    if (show) {
+        localStorage.removeItem('hide_demo_panel');
+        if (panel) panel.style.display = 'flex';
+        if (restoreBtn) restoreBtn.style.display = 'none';
+        showToast('Демонстрационная панель ролей включена', 'info');
+    } else {
+        localStorage.setItem('hide_demo_panel', 'true');
+        if (panel) panel.style.display = 'none';
+        if (restoreBtn) restoreBtn.style.display = 'inline-block';
+        showToast('Демо-панель скрыта. Включить ее можно кнопкой внизу страницы.', 'info');
+    }
+}
+
+function initDemoPanelState() {
+    const isHidden = localStorage.getItem('hide_demo_panel') === 'true';
+    const panel = document.getElementById('demo-switchers');
+    const restoreBtn = document.getElementById('btn-show-demo');
+    if (isHidden) {
+        if (panel) panel.style.display = 'none';
+        if (restoreBtn) restoreBtn.style.display = 'inline-block';
+    } else {
+        if (panel) panel.style.display = 'flex';
+        if (restoreBtn) restoreBtn.style.display = 'none';
+    }
+}
 
 // Слушатель события истечения сессии
 window.addEventListener('auth:expired', () => {
