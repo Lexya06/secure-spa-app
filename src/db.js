@@ -80,33 +80,34 @@ db.exec(`
     );
 `);
 
-/**
- * Инициализация предустановленных пользователей (seed) для удобства защиты и тестирования
- */
 function seedDatabase() {
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-    if (userCount === 0) {
-        const insertUser = db.prepare(`
-            INSERT INTO users (name, email, password_hash, role)
-            VALUES (?, ?, ?, ?)
-        `);
+    const insertUser = db.prepare(`
+        INSERT OR IGNORE INTO users (name, email, password_hash, role)
+        VALUES (?, ?, ?, ?)
+    `);
 
-        const managerHash = bcrypt.hashSync('Manager123!', config.BCRYPT_SALT_ROUNDS);
-        const executorHash = bcrypt.hashSync('Executor123!', config.BCRYPT_SALT_ROUNDS);
-        const reviewerHash = bcrypt.hashSync('Reviewer123!', config.BCRYPT_SALT_ROUNDS);
+    const managerHash = bcrypt.hashSync('Manager123!', config.BCRYPT_SALT_ROUNDS);
+    const executorHash = bcrypt.hashSync('Executor123!', config.BCRYPT_SALT_ROUNDS);
+    const reviewerHash = bcrypt.hashSync('Reviewer123!', config.BCRYPT_SALT_ROUNDS);
 
-        // 1. Руководитель
-        const m1 = insertUser.run('Дмитрий Ковалев', 'manager@example.com', managerHash, config.ROLES.MANAGER);
+    // 1. Создаем или сохраняем 3 роли для лабораторной работы
+    insertUser.run('Дмитрий Ковалев', 'manager@example.com', managerHash, config.ROLES.MANAGER);
+    insertUser.run('Максим Морозов', 'executor@example.com', executorHash, config.ROLES.EXECUTOR);
+    insertUser.run('Анна Новикова', 'reviewer@example.com', reviewerHash, config.ROLES.REVIEWER);
 
-        // 2. Исполнители (разработчики)
-        const e1 = insertUser.run('Максим Морозов', 'executor@example.com', executorHash, config.ROLES.EXECUTOR);
-        const e2 = insertUser.run('Артем Васильев', 'executor2@example.com', executorHash, config.ROLES.EXECUTOR);
+    // Реальный пользователь для демонстрации восстановления через личный email
+    const yana = db.prepare("SELECT * FROM users WHERE email = 'arikhartmen75@gmail.com'").get();
+    if (!yana) {
+        insertUser.run('Яна Алексейчик', 'arikhartmen75@gmail.com', managerHash, config.ROLES.MANAGER);
+    }
 
-        // 3. Проверяющие (рецензенты / QA)
-        const r1 = insertUser.run('Анна Новикова', 'reviewer@example.com', reviewerHash, config.ROLES.REVIEWER);
-        const r2 = insertUser.run('Елена Соколова', 'reviewer2@example.com', reviewerHash, config.ROLES.REVIEWER);
+    // 2. Демонстрационные задачи с назначенными исполнителями и проверяющими
+    const taskCount = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
+    if (taskCount === 0) {
+        const mgr = db.prepare("SELECT id FROM users WHERE role = 'manager'").get();
+        const exec = db.prepare("SELECT id FROM users WHERE role = 'executor'").get();
+        const rev = db.prepare("SELECT id FROM users WHERE role = 'reviewer'").get();
 
-        // Добавим демонстрационные задачи с назначенными исполнителями и проверяющими
         const insertTask = db.prepare(`
             INSERT INTO tasks (title, description, due_date, status, creator_id, executor_id, reviewer_id, review_comment)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -117,10 +118,10 @@ function seedDatabase() {
             'Настроить проверку ролей руководителя, исполнителя и проверяющего на временных ключах',
             '2026-10-15',
             config.TASK_STATUSES.IN_REVIEW,
-            m1.lastInsertRowid,
-            e1.lastInsertRowid,
-            r1.lastInsertRowid,
-            'Реализация завершена, отправлено на ревью'
+            mgr.id,
+            exec.id,
+            rev.id,
+            'Реализация завершена, отправлено на проверку'
         );
 
         insertTask.run(
@@ -128,9 +129,9 @@ function seedDatabase() {
             'Подключить логирование Winston в формате JSON со сквозным Request ID',
             '2026-10-20',
             config.TASK_STATUSES.IN_PROGRESS,
-            m1.lastInsertRowid,
-            e1.lastInsertRowid,
-            r1.lastInsertRowid,
+            mgr.id,
+            exec.id,
+            rev.id,
             null
         );
 
@@ -139,9 +140,9 @@ function seedDatabase() {
             'Описать архитектуру решения, обработку ошибок по RFC 7807 и защиту от брутфорса',
             '2026-10-25',
             config.TASK_STATUSES.PENDING,
-            m1.lastInsertRowid,
-            e2.lastInsertRowid,
-            r2.lastInsertRowid,
+            mgr.id,
+            exec.id,
+            rev.id,
             null
         );
     }

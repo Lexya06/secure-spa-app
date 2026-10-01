@@ -1,4 +1,11 @@
 const path = require('path');
+const fs = require('fs');
+
+// Автоматическая загрузка конфигурации из .env, если файл существует
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+    require('dotenv').config({ path: envPath });
+}
 
 module.exports = {
     PORT: process.env.PORT || 3000,

@@ -121,22 +121,15 @@ async function loadUsers() {
         const editExecSelect = document.getElementById('edit-executor');
         const editRevSelect = document.getElementById('edit-reviewer');
 
-        // Исполнители (пользователи с ролью executor или manager)
-        const execOptions = allUsers
-            .filter(u => u.role === 'executor' || u.role === 'manager')
-            .map(u => `<option value="${u.id}">${escapeHtml(u.name)} (${getRoleName(u.role)})</option>`)
+        // Все зарегистрированные пользователи с указанием email и текущей роли
+        const userOptions = allUsers
+            .map(u => `<option value="${u.id}">${escapeHtml(u.name)} (${escapeHtml(u.email)} — ${getRoleName(u.role)})</option>`)
             .join('');
 
-        // Проверяющие (пользователи с ролью reviewer или manager)
-        const revOptions = allUsers
-            .filter(u => u.role === 'reviewer' || u.role === 'manager')
-            .map(u => `<option value="${u.id}">${escapeHtml(u.name)} (${getRoleName(u.role)})</option>`)
-            .join('');
-
-        if (execSelect) execSelect.innerHTML = '<option value="">-- Не назначен --</option>' + execOptions;
-        if (revSelect) revSelect.innerHTML = '<option value="">-- Не назначен --</option>' + revOptions;
-        if (editExecSelect) editExecSelect.innerHTML = '<option value="">-- Не назначен --</option>' + execOptions;
-        if (editRevSelect) editRevSelect.innerHTML = '<option value="">-- Не назначен --</option>' + revOptions;
+        if (execSelect) execSelect.innerHTML = '<option value="">-- Не назначен --</option>' + userOptions;
+        if (revSelect) revSelect.innerHTML = '<option value="">-- Не назначен --</option>' + userOptions;
+        if (editExecSelect) editExecSelect.innerHTML = '<option value="">-- Не назначен --</option>' + userOptions;
+        if (editRevSelect) editRevSelect.innerHTML = '<option value="">-- Не назначен --</option>' + userOptions;
     } catch (e) {
         console.warn('Ошибка загрузки пользователей:', e);
     }
@@ -209,7 +202,7 @@ function renderTasks(tasks) {
         if (emptyState) {
             emptyState.style.display = 'block';
             emptyState.querySelector('.empty-title').textContent = 'Требуется авторизация';
-            emptyState.querySelector('.empty-subtitle').textContent = 'Нажмите кнопку быстрого входа вверху (Руководитель, Исполнитель или Проверяющий).';
+            emptyState.querySelector('.empty-subtitle').textContent = 'Войдите в систему или зарегистрируйтесь для работы с задачами.';
         }
         return;
     }

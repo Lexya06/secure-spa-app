@@ -2,8 +2,11 @@ const express = require('express');
 const router = express.Router();
 const AuthService = require('../services/authService');
 const SessionService = require('../services/sessionService');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRoles } = require('../middleware/auth');
+const ApiError = require('../errors/ApiError');
+const logger = require('../logger');
 const { db } = require('../db');
+const mailer = require('../mailer');
 
 /**
  * 1. Регистрация нового пользователя
@@ -166,12 +169,29 @@ router.post('/forgot-password', async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: result.message,
-            previewUrl: result.previewUrl,
+            email: result.email,
+            resetUrl: result.resetUrl,
+            emailRecord: result.emailRecord,
+            resetToken: result.debugToken,
             debugToken: result.debugToken
         });
     } catch (err) {
         next(err);
     }
+});
+
+/**
+ * 9.1. Получение писем из встроенного почтового ящика (входящие для пользователя)
+ * GET /api/auth/mailbox (200 OK)
+ */
+router.get('/mailbox', (req, res) => {
+    const { email } = req.query;
+    const emails = mailer.getSentEmails(email);
+    res.status(200).json({
+        success: true,
+        count: emails.length,
+        data: emails
+    });
 });
 
 /**
@@ -202,6 +222,42 @@ router.get('/users', authenticateToken, (req, res) => {
         success: true,
         data: rows
     });
+});
+
+/**
+ * 12. Назначение / смена роли пользователя руководителем (RBAC)
+ * PATCH /api/auth/users/:id/role
+ */
+router.patch('/users/:id/role', authenticateToken, requireRoles('manager'), (req, res, next) => {
+    try {
+        const targetUserId = req.params.id;
+        const { role } = req.body;
+        const allowedRoles = ['manager', 'executor', 'reviewer'];
+
+        if (!role || !allowedRoles.includes(role)) {
+            return next(ApiError.badRequest(`Недопустимая роль. Допустимы: ${allowedRoles.join(', ')}`, 'INVALID_ROLE'));
+        }
+
+        const user = db.prepare('SELECT id, name, email, role FROM users WHERE id = ?').get(targetUserId);
+        if (!user) {
+            return next(ApiError.notFound('Пользователь не найден', 'USER_NOT_FOUND'));
+        }
+
+        db.prepare('UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(role, targetUserId);
+
+        logger.audit('USER_ROLE_CHANGED', {
+            manager: { id: req.user.id, email: req.user.email },
+            targetUser: { id: user.id, email: user.email, oldRole: user.role, newRole: role }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Роль пользователя ${user.name} успешно изменена на "${role}"`,
+            data: { id: user.id, role }
+        });
+    } catch (err) {
+        next(err);
+    }
 });
 
 module.exports = router;

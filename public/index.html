@@ -28,17 +28,11 @@
             </div>
         </div>
 
-        <!-- Кнопки быстрого входа под 3 ролями для удобства проверки на защите -->
-        <div class="demo-switchers" id="demo-switchers">
-            <span class="demo-label">Демо-вход:</span>
-            <button type="button" class="btn-demo btn-demo-manager" onclick="quickLogin('manager')">👔 Дмитрий (Руководитель)</button>
-            <button type="button" class="btn-demo btn-demo-executor" onclick="quickLogin('executor')">🔨 Максим (Исполнитель)</button>
-            <button type="button" class="btn-demo btn-demo-reviewer" onclick="quickLogin('reviewer')">🔍 Анна (Проверяющий)</button>
-            <button type="button" class="btn-hide-demo" onclick="toggleDemoPanel(false)" title="Скрыть демонстрационную панель">✕</button>
-        </div>
-
         <!-- Блок профиля пользователя -->
         <div class="user-nav-section">
+            <button type="button" class="btn btn-outline-primary btn-mailbox" onclick="openMailboxModal()" title="Входящие сообщения электронной почты">
+                📬 Почта <span id="mailbox-badge" class="nav-badge" style="display: none;">0</span>
+            </button>
             <div id="nav-guest" class="nav-guest">
                 <button class="btn btn-outline-primary" onclick="openLoginModal()">Вход</button>
                 <button class="btn btn-primary" onclick="openRegisterModal()">Регистрация</button>
@@ -190,11 +184,6 @@
             <p class="empty-title">Задачи не найдены</p>
             <p class="empty-subtitle">Войдите как Руководитель для создания задач или измените параметры фильтра.</p>
         </div>
-        <footer class="app-footer">
-            <button type="button" id="btn-show-demo" class="demo-restore-link" onclick="toggleDemoPanel(true)" style="display: none;">
-                🔧 Включить демо-панель ролей
-            </button>
-        </footer>
     </section>
 </main>
 
@@ -209,6 +198,23 @@
             </div>
             <form id="login-form" novalidate>
                 <div id="login-errors" class="validation-summary" style="display: none;"></div>
+
+                <div class="quick-role-selector" style="margin-bottom: 14px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <div style="font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
+                        Быстрый вход для 3 ролей (ЛР3):
+                    </div>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('manager@example.com', 'Manager123!')" title="Руководитель">
+                            👔 Руководитель
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('executor@example.com', 'Executor123!')" title="Исполнитель">
+                            🔨 Исполнитель
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('reviewer@example.com', 'Reviewer123!')" title="Проверяющий">
+                            🔍 Проверяющий
+                        </button>
+                    </div>
+                </div>
 
                 <div class="form-group">
                     <label for="login-email">Email:</label>
@@ -284,22 +290,24 @@
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>📧 Восстановление доступа</h3>
+                <h3>📧 Восстановление доступа через почту</h3>
                 <button type="button" class="modal-close-btn" onclick="closeForgotModal()">✕</button>
             </div>
             <form id="forgot-form" novalidate>
-                <p class="modal-hint">Введите ваш email для получения одноразового кода восстановления.</p>
+                <p class="modal-hint">Введите ваш email. Мы отправим письмо со ссылкой для восстановления доступа.</p>
                 <div id="forgot-errors" class="validation-summary" style="display: none;"></div>
-                <div id="forgot-success" class="alert alert-success" style="display: none;"></div>
+                <div id="forgot-success" style="display: none;"></div>
 
-                <div class="form-group">
-                    <label for="forgot-email">Email:</label>
-                    <input type="email" id="forgot-email" name="email" required placeholder="name@example.com">
-                </div>
+                <div id="forgot-form-fields">
+                    <div class="form-group">
+                        <label for="forgot-email">Email учетной записи:</label>
+                        <input type="email" id="forgot-email" name="email" required placeholder="name@example.com">
+                    </div>
 
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeForgotModal()">Закрыть</button>
-                    <button type="submit" id="btn-forgot-submit" class="btn btn-primary">Отправить токен</button>
+                    <div class="modal-footer" style="padding-top: 10px;">
+                        <button type="button" class="btn btn-secondary" onclick="openLoginModalFromForgot()">← Назад ко входу</button>
+                        <button type="submit" id="btn-forgot-submit" class="btn btn-primary">Отправить письмо</button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -316,23 +324,48 @@
                 <button type="button" class="modal-close-btn" onclick="closeResetModal()">✕</button>
             </div>
             <form id="reset-password-form" novalidate>
+                <p class="modal-hint">Введите проверочный токен из письма и задайте новый надежный пароль.</p>
                 <div id="reset-errors" class="validation-summary" style="display: none;"></div>
 
                 <div class="form-group">
-                    <label for="reset-token">Одноразовый токен:</label>
-                    <input type="text" id="reset-token" name="token" required placeholder="Вставьте токен...">
+                    <label for="reset-token">Одноразовый проверочный токен:</label>
+                    <input type="text" id="reset-token" name="token" required placeholder="Токен из письма...">
                 </div>
 
                 <div class="form-group">
-                    <label for="reset-new-password">Новый пароль:</label>
-                    <input type="password" id="reset-new-password" name="newPassword" required placeholder="Мин. 8 знаков, заглавная, цифра">
+                    <label for="reset-new-password">Новый пароль (мин. 8 знаков, заглавная, цифра):</label>
+                    <input type="password" id="reset-new-password" name="newPassword" required placeholder="Например: NewPassword1!">
                 </div>
 
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeResetModal()">Отмена</button>
-                    <button type="submit" id="btn-reset-pass-submit" class="btn btn-primary">Сохранить</button>
+                    <button type="submit" id="btn-reset-pass-submit" class="btn btn-primary">Сохранить пароль</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: ВСТРОЕННЫЙ ПОЧТОВЫЙ ЯЩИК -->
+<div id="mailbox-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeMailboxModal()"></div>
+    <div class="modal-dialog modal-md">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📬 Почтовый ящик (Входящие сообщения)</h3>
+                <button type="button" class="modal-close-btn" onclick="closeMailboxModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="mailbox-toolbar">
+                    <span class="mailbox-info-text">Входящие электронные письма системы</span>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="loadMailbox()">🔄 Обновить</button>
+                </div>
+                <div id="mailbox-list" class="mailbox-list"></div>
+                <div id="mailbox-view" class="mailbox-view" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeMailboxModal()">Закрыть</button>
+            </div>
         </div>
     </div>
 </div>

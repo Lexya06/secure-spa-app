@@ -341,13 +341,12 @@ class AuthService {
         const cleanEmail = email.trim().toLowerCase();
         const user = db.prepare('SELECT id, name, email FROM users WHERE email = ?').get(cleanEmail);
 
-        // Защита от перечисления пользователей (User Enumeration):
-        // Всегда возвращаем успешный ответ клиенту, даже если пользователь не найден!
         if (!user) {
-            logger.info(`[FORGOT PASSWORD] Запрос сброса для несуществующего email: ${cleanEmail}`);
-            return {
-                message: 'Если учетная запись с указанным email существует, письмо с инструкциями было отправлено.'
-            };
+            logger.warn(`[FORGOT PASSWORD] Запрос сброса для незарегистрированного email: ${cleanEmail}`);
+            throw ApiError.notFound(
+                `Пользователь с адресом "${cleanEmail}" не найден в системе. Пожалуйста, сначала зарегистрируйтесь через форму регистрации.`,
+                'USER_NOT_FOUND'
+            );
         }
 
         // Аннулируем предыдущие неиспользованные токены сброса для этого пользователя
@@ -366,18 +365,31 @@ class AuthService {
         `).run(user.id, tokenHash, expiresAt.toISOString());
 
         const resetUrl = `${reqBaseUrl}/#reset-password?token=${rawToken}`;
-        const mailResult = await sendPasswordResetEmail(user.email, rawToken, resetUrl);
+        let mailResult = null;
+        try {
+            mailResult = await sendPasswordResetEmail(user.email, rawToken, resetUrl);
+        } catch (mailErr) {
+            logger.warn(`[FORGOT PASSWORD] Ошибка отправки письма: ${mailErr.message}`);
+        }
 
         logger.audit('PASSWORD_RESET_REQUESTED', {
             user: { id: user.id, email: user.email },
-            details: { previewUrl: mailResult.previewUrl }
+            details: { resetToken: rawToken }
         });
 
+        console.log('\n======================================================');
+        console.log(`[СБРОС ПАРОЛЯ] Запрос для: ${user.email}`);
+        console.log(`[ТОКЕН ВОССТАНОВЛЕНИЯ]: ${rawToken}`);
+        console.log(`[ССЫЛКА ДЛЯ СБРОСА]: ${resetUrl}`);
+        console.log('======================================================\n');
+
         return {
-            message: 'Если учетная запись с указанным email существует, письмо с инструкциями было отправлено.',
-            // Для удобства локального тестирования и защиты лабораторной возвращаем токен и превью:
+            message: `Письмо для восстановления доступа успешно сформировано для ${user.email}`,
+            email: user.email,
             debugToken: rawToken,
-            previewUrl: mailResult.previewUrl
+            resetToken: rawToken,
+            resetUrl,
+            emailRecord: mailResult ? mailResult.emailRecord : null
         };
     }
 

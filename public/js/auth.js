@@ -4,13 +4,6 @@
 
 let currentUser = null;
 
-// Предустановленные демо-пользователи для удобства демонстрации ролей на защите
-const DEMO_ACCOUNTS = {
-    manager: { email: 'manager@example.com', pass: 'Manager123!' },
-    executor: { email: 'executor@example.com', pass: 'Executor123!' },
-    reviewer: { email: 'reviewer@example.com', pass: 'Reviewer123!' }
-};
-
 function getRoleName(role) {
     const roleNames = {
         manager: 'Руководитель',
@@ -27,7 +20,6 @@ async function initAuth() {
     const savedUser = localStorage.getItem('user_info');
     const token = ApiClient.getAccessToken();
 
-    initDemoPanelState();
     if (savedUser && token) {
         try {
             currentUser = JSON.parse(savedUser);
@@ -45,6 +37,9 @@ async function initAuth() {
     } else {
         updateAuthUI();
     }
+
+    updateMailboxBadge();
+    checkUrlForResetToken();
 }
 
 /**
@@ -94,45 +89,6 @@ function updateAuthUI() {
         navAuth.style.display = 'none';
         roleBanner.style.display = 'none';
         managerCreate.style.display = 'none';
-    }
-}
-
-/**
- * Быстрый вход под одной из 3 ролей (без создания лишних сессий)
- */
-async function quickLogin(role) {
-    const creds = DEMO_ACCOUNTS[role];
-    if (!creds) return;
-
-    try {
-        // Если уже выполнен вход другим аккаунтом, завершаем старую сессию
-        if (currentUser && currentUser.email !== creds.email) {
-            try {
-                await ApiClient.post('/api/auth/logout', {});
-            } catch {
-                // Игнорируем ошибку логаута
-            }
-        }
-        ApiClient.clearTokens();
-        currentUser = null;
-
-        showToast(`Выполняется вход под ролью "${getRoleName(role)}"...`, 'info');
-        const res = await ApiClient.post('/api/auth/login', {
-            email: creds.email,
-            password: creds.pass
-        });
-
-        ApiClient.setTokens(res.data.accessToken, res.data.refreshToken);
-        currentUser = res.data.user;
-        localStorage.setItem('user_info', JSON.stringify(currentUser));
-
-        updateAuthUI();
-        showToast(`Вы вошли как ${currentUser.name} (${getRoleName(currentUser.role)})`, 'success');
-
-        if (window.loadUsers) await window.loadUsers();
-        if (window.loadTasks) await window.loadTasks();
-    } catch (err) {
-        showToast(err.message, 'error');
     }
 }
 
@@ -233,25 +189,102 @@ async function handleForgotSubmit(event) {
     const email = form.email.value.trim();
     const errorBox = document.getElementById('forgot-errors');
     const successBox = document.getElementById('forgot-success');
+    const fields = document.getElementById('forgot-form-fields');
     errorBox.style.display = 'none';
     successBox.style.display = 'none';
 
+    const btn = document.getElementById('btn-forgot-submit');
+    const originalBtnText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Отправка письма...';
+    }
+
     try {
         const res = await ApiClient.post('/api/auth/forgot-password', { email });
-        let html = `<strong>${res.message}</strong>`;
-        if (res.debugToken) {
-            html += `<br><br><span style="font-size: 12px; color: #475569;">🔑 Одноразовый код сброса: <code>${res.debugToken}</code></span>`;
-            if (res.previewUrl) {
-                html += `<br><a href="${res.previewUrl}" target="_blank" style="color: #2563eb; font-size: 12px; display: inline-block; margin-top: 4px;">Просмотреть отправленное письмо (Ethereal)</a>`;
-            }
-            html += `<br><br><button type="button" class="btn btn-sm btn-primary" onclick="openResetModalWithToken('${res.debugToken}')">Ввести новый пароль</button>`;
-        }
+        const token = res.resetToken || res.debugToken;
+        const resetUrl = res.resetUrl || `${window.location.origin}/#reset-password?token=${token}`;
+
+        // Скрываем поля ввода, чтобы не требовать повторный ввод email
+        if (fields) fields.style.display = 'none';
+
+        const deliveryNotice = `
+            <div style="padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; color: #1e40af; font-size: 13px; margin-bottom: 12px;">
+                📬 <strong>Письмо для сброса пароля сформировано!</strong><br>
+                Оно отправлено на <strong>${escapeHtml(email)}</strong>, зафиксировано в почтовом сервисе приложения (кнопка <strong>«Почта»</strong>) и продублировано ниже:
+            </div>
+        `;
+
+        let html = `
+            ${deliveryNotice}
+            <div style="padding: 14px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <div style="font-size: 13px; font-weight: 600; color: #1e293b; margin-bottom: 6px;">
+                    🔑 Одноразовый код сброса пароля:
+                </div>
+                <code style="display: block; word-break: break-all; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; color: #0f172a; margin-bottom: 12px;">${token}</code>
+                
+                <button type="button" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" onclick="openResetModalWithToken('${token}')">
+                    🔑 Перейти к смене пароля (токен уже вставлен)
+                </button>
+
+                <div style="font-size: 12px; color: #64748b; line-height: 1.5; word-break: break-all;">
+                    Прямая ссылка: <br>
+                    <a href="${resetUrl}" style="color: #2563eb; text-decoration: underline;">${resetUrl}</a>
+                </div>
+            </div>
+            
+            <div style="margin-top: 14px; display: flex; justify-content: space-between; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="resetForgotFormState()">
+                    ← Ввести другой email
+                </button>
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="openMailboxModalFor('${escapeHtml(email)}')">
+                    📬 Открыть письмо в Почте
+                </button>
+            </div>
+        `;
+
         successBox.innerHTML = html;
         successBox.style.display = 'block';
+        updateMailboxBadge();
     } catch (err) {
         errorBox.textContent = err.message;
         errorBox.style.display = 'block';
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalBtnText;
+        }
     }
+}
+
+function resetForgotFormState() {
+    const errorBox = document.getElementById('forgot-errors');
+    const successBox = document.getElementById('forgot-success');
+    const fields = document.getElementById('forgot-form-fields');
+    if (errorBox) errorBox.style.display = 'none';
+    if (successBox) successBox.style.display = 'none';
+    if (fields) fields.style.display = 'block';
+    const emailInput = document.getElementById('forgot-email');
+    if (emailInput) {
+        setTimeout(() => emailInput.focus(), 50);
+    }
+}
+
+function openLoginModalFromForgot() {
+    closeForgotModal();
+    openLoginModal();
+}
+
+function openForgotPasswordModal() {
+    // Автоматически подставляем email, если пользователь уже вводил его в форме входа (чтобы не вводить 2 раза!)
+    const loginEmail = document.getElementById('login-email')?.value?.trim();
+    const forgotEmail = document.getElementById('forgot-email');
+    if (loginEmail && forgotEmail) {
+        forgotEmail.value = loginEmail;
+    }
+    resetForgotFormState();
+    closeLoginModal();
+    openForgotModal();
 }
 
 /**
@@ -269,12 +302,59 @@ async function handleResetPasswordSubmit(event) {
         const res = await ApiClient.post('/api/auth/reset-password', { token, newPassword });
         closeResetModal();
         form.reset();
-        showToast(res.message, 'success');
+        showToast(res.message || 'Пароль успешно изменен! Войдите с новым паролем.', 'success');
+
+        // Подставляем email в форму входа, чтобы пользователю осталось ввести только пароль
+        const forgotEmail = document.getElementById('forgot-email')?.value?.trim();
+        if (forgotEmail) {
+            const loginEmail = document.getElementById('login-email');
+            if (loginEmail) loginEmail.value = forgotEmail;
+        }
+
         openLoginModal();
+        const loginPass = document.getElementById('login-password');
+        if (loginPass) {
+            loginPass.value = '';
+            setTimeout(() => loginPass.focus(), 100);
+        }
     } catch (err) {
         errorBox.textContent = err.message;
         errorBox.style.display = 'block';
     }
+}
+
+/**
+ * Проверка URL на наличие токена восстановления пароля
+ */
+function checkUrlForResetToken() {
+    let token = null;
+    const hash = window.location.hash;
+    if (hash && hash.includes('reset-password')) {
+        const match = hash.match(/[?&]token=([a-zA-Z0-9]+)/);
+        if (match) token = match[1];
+    }
+    if (!token) {
+        const params = new URLSearchParams(window.location.search);
+        token = params.get('token');
+    }
+
+    if (token) {
+        openResetModalWithToken(token);
+        if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname);
+        }
+    }
+}
+window.addEventListener('hashchange', checkUrlForResetToken);
+
+/**
+ * Быстрое заполнение формы входа для 3 ролей (удобство защиты лабораторной)
+ */
+function fillLoginForm(email, password) {
+    const emailInput = document.getElementById('login-email');
+    const passInput = document.getElementById('login-password');
+    if (emailInput) emailInput.value = email;
+    if (passInput) passInput.value = password;
 }
 
 /**
@@ -349,15 +429,21 @@ function closeRegisterModal() { document.getElementById('register-modal').classL
 function openForgotModal() { document.getElementById('forgot-modal').classList.add('active'); }
 function closeForgotModal() { document.getElementById('forgot-modal').classList.remove('active'); }
 
-function openForgotPasswordModal() {
-    closeLoginModal();
-    openForgotModal();
-}
-
 function openResetModalWithToken(token) {
     closeForgotModal();
-    document.getElementById('reset-token').value = token;
+    closeMailboxModal();
+    const tokenInput = document.getElementById('reset-token');
+    if (tokenInput) tokenInput.value = token;
+    const errorBox = document.getElementById('reset-errors');
+    if (errorBox) errorBox.style.display = 'none';
+    const form = document.getElementById('reset-password-form');
+    if (form && form.newPassword) form.newPassword.value = '';
+
     document.getElementById('reset-password-modal').classList.add('active');
+    setTimeout(() => {
+        const passInput = document.getElementById('reset-new-password');
+        if (passInput) passInput.focus();
+    }, 100);
 }
 function closeResetModal() { document.getElementById('reset-password-modal').classList.remove('active'); }
 
@@ -367,41 +453,138 @@ function openSessionsModal() {
 }
 function closeSessionsModal() { document.getElementById('sessions-modal').classList.remove('active'); }
 
-// Управление видимостью демонстрационной панели
-async function toggleDemoPanel(show) {
-    const panel = document.getElementById('demo-switchers');
-    const restoreBtn = document.getElementById('btn-show-demo');
-    if (show) {
-        localStorage.removeItem('hide_demo_panel');
-        if (panel) panel.style.display = 'flex';
-        if (restoreBtn) restoreBtn.style.display = 'none';
-        showToast('Демонстрационная панель ролей включена', 'info');
-    } else {
-        localStorage.setItem('hide_demo_panel', 'true');
-        if (panel) panel.style.display = 'none';
-        if (restoreBtn) restoreBtn.style.display = 'inline-block';
+/**
+ * Функции встроенного почтового клиента (Входящие сообщения)
+ */
+let currentMailboxList = [];
 
-        // Автоматически завершаем сессию при отключении демо-режима
-        if (currentUser) {
-            await handleLogout();
+async function updateMailboxBadge() {
+    try {
+        const res = await ApiClient.get('/api/auth/mailbox');
+        const badge = document.getElementById('mailbox-badge');
+        if (badge) {
+            const count = res.count || (res.data ? res.data.length : 0);
+            if (count > 0) {
+                badge.textContent = count;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
         }
-
-        showToast('Демо-панель скрыта. Теперь выполняется вход вручную.', 'info');
-        openLoginModal();
+    } catch {
+        // Игнорируем фоновые ошибки
     }
 }
 
-function initDemoPanelState() {
-    const isHidden = localStorage.getItem('hide_demo_panel') === 'true';
-    const panel = document.getElementById('demo-switchers');
-    const restoreBtn = document.getElementById('btn-show-demo');
-    if (isHidden) {
-        if (panel) panel.style.display = 'none';
-        if (restoreBtn) restoreBtn.style.display = 'inline-block';
-    } else {
-        if (panel) panel.style.display = 'flex';
-        if (restoreBtn) restoreBtn.style.display = 'none';
+async function loadMailbox(forEmail = null) {
+    const listEl = document.getElementById('mailbox-list');
+    const viewEl = document.getElementById('mailbox-view');
+    if (!listEl) return;
+
+    listEl.style.display = 'flex';
+    if (viewEl) viewEl.style.display = 'none';
+    listEl.innerHTML = '<p style="text-align:center; padding: 20px; color:#64748b;">Загрузка входящих писем...</p>';
+
+    try {
+        const params = forEmail ? { email: forEmail } : {};
+        const res = await ApiClient.get('/api/auth/mailbox', params);
+        currentMailboxList = res.data || [];
+
+        if (currentMailboxList.length === 0) {
+            listEl.innerHTML = `
+                <div style="text-align: center; padding: 30px 10px; color: #64748b;">
+                    <div style="font-size: 32px; margin-bottom: 8px;">📭</div>
+                    <strong>Входящих писем пока нет</strong>
+                    <p style="font-size: 13px; margin-top: 4px;">Запросите сброс пароля через форму «Забыли пароль?», и сформированное письмо появится здесь.</p>
+                </div>
+            `;
+            return;
+        }
+
+        listEl.innerHTML = currentMailboxList.map((m, index) => {
+            const dateStr = new Date(m.sentAt).toLocaleString('ru-RU');
+            const statusBadge = '<span style="font-size: 10px; background: #eff6ff; color: #1e40af; padding: 2px 6px; border-radius: 4px; font-weight: 600;">Доставлено</span>';
+
+            return `
+                <div class="mail-item" onclick="viewMailDetail(${index})">
+                    <div class="mail-item-header">
+                        <span class="mail-from">От: ${escapeHtml(m.from || 'Безопасность СПП')}</span>
+                        <span class="mail-date">${dateStr}</span>
+                    </div>
+                    <div class="mail-to">Кому: <strong>${escapeHtml(m.to)}</strong> &bull; ${statusBadge}</div>
+                    <div class="mail-subject">✉️ ${escapeHtml(m.subject)}</div>
+                    <div class="mail-snippet">Нажмите, чтобы прочитать письмо и сменить пароль ➔</div>
+                </div>
+            `;
+        }).join('');
+
+        updateMailboxBadge();
+    } catch (err) {
+        listEl.innerHTML = `<p class="modal-warning-text">Ошибка загрузки почты: ${err.message}</p>`;
     }
+}
+
+function viewMailDetail(index) {
+    const mail = currentMailboxList[index];
+    if (!mail) return;
+
+    const listEl = document.getElementById('mailbox-list');
+    const viewEl = document.getElementById('mailbox-view');
+    if (!listEl || !viewEl) return;
+
+    listEl.style.display = 'none';
+    viewEl.style.display = 'block';
+
+    const dateStr = new Date(mail.sentAt).toLocaleString('ru-RU');
+
+    viewEl.innerHTML = `
+        <div class="mail-detail-toolbar">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="backToMailboxList()">← Назад к списку</button>
+            <span style="font-size: 12px; color: #64748b;">${dateStr}</span>
+        </div>
+        <div class="mail-detail-headers">
+            <div><strong>Тема:</strong> ${escapeHtml(mail.subject)}</div>
+            <div><strong>От:</strong> ${escapeHtml(mail.from)}</div>
+            <div><strong>Кому:</strong> ${escapeHtml(mail.to)}</div>
+        </div>
+        <div class="mail-detail-body">
+            ${mail.html || `<pre style="white-space: pre-wrap;">${escapeHtml(mail.text)}</pre>`}
+        </div>
+        <div class="mail-detail-actions">
+            ${mail.resetToken ? `
+                <button type="button" class="btn btn-primary" onclick="applyTokenFromMail('${mail.resetToken}')">
+                    🔑 Сбросить пароль по этому письму
+                </button>
+            ` : ''}
+        </div>
+    `;
+}
+
+function backToMailboxList() {
+    const listEl = document.getElementById('mailbox-list');
+    const viewEl = document.getElementById('mailbox-view');
+    if (listEl) listEl.style.display = 'flex';
+    if (viewEl) viewEl.style.display = 'none';
+}
+
+function applyTokenFromMail(token) {
+    closeMailboxModal();
+    openResetModalWithToken(token);
+}
+
+function openMailboxModal() {
+    document.getElementById('mailbox-modal').classList.add('active');
+    loadMailbox();
+}
+
+function openMailboxModalFor(email) {
+    closeForgotModal();
+    document.getElementById('mailbox-modal').classList.add('active');
+    loadMailbox(email);
+}
+
+function closeMailboxModal() {
+    document.getElementById('mailbox-modal').classList.remove('active');
 }
 
 // Слушатель события истечения сессии
