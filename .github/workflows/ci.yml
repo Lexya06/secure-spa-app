@@ -24,20 +24,16 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
-          cache-dependency-path: secure-spa-app/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: secure-spa-app
         run: npm ci
 
       - name: Run ESLint
-        working-directory: secure-spa-app
         run: npm run lint
 
       - name: Run Automated Test Suite (Jest + Supertest)
-        working-directory: secure-spa-app
         run: npm test
 
       - name: Security Audit Check
-        working-directory: secure-spa-app
         run: npm audit --audit-level=critical
