@@ -169,4 +169,61 @@ describe('Тестирование модуля аутентификации, б
         expect(lockedRes.header['retry-after']).toBeDefined();
         expect(lockedRes.body.code).toMatch(/TOO_MANY_ATTEMPTS|ACCOUNT_LOCKED/);
     });
+
+    test('11. Смена личного пароля авторизованным пользователем только для себя (200 OK)', async () => {
+        // Логинимся пользователем testEmail с newPassword
+        const loginRes = await request(app).post('/api/auth/login').send({
+            email: testEmail,
+            password: 'NewSecretPassword2026!'
+        });
+        const userToken = loginRes.body.data.accessToken;
+
+        // Попытка с неверным текущим паролем
+        const badRes = await request(app)
+            .post('/api/auth/change-password')
+            .set('Authorization', `Bearer ${userToken}`)
+            .send({
+                currentPassword: 'WrongOldPassword1!',
+                newPassword: 'BrandNewPassword2026!'
+            });
+        expect(badRes.status).toBe(400);
+
+        // Успешная смена пароля
+        const successRes = await request(app)
+            .post('/api/auth/change-password')
+            .set('Authorization', `Bearer ${userToken}`)
+            .send({
+                currentPassword: 'NewSecretPassword2026!',
+                newPassword: 'BrandNewPassword2026!',
+                confirmPassword: 'BrandNewPassword2026!'
+            });
+        expect(successRes.status).toBe(200);
+        expect(successRes.body.success).toBe(true);
+
+        // Проверяем, что новый пароль работает
+        const reLogin = await request(app).post('/api/auth/login').send({
+            email: testEmail,
+            password: 'BrandNewPassword2026!'
+        });
+        expect(reLogin.status).toBe(200);
+    });
+
+    test('12. Доступ к почтовому ящику строго персонализирован (401 без токена, 200 с токеном)', async () => {
+        // Без токена доступ к ящику запрещен
+        const unauthRes = await request(app).get('/api/auth/mailbox');
+        expect(unauthRes.status).toBe(401);
+
+        // С токеном доступ есть только к своим письмам
+        const loginRes = await request(app).post('/api/auth/login').send({
+            email: testEmail,
+            password: 'BrandNewPassword2026!'
+        });
+        const userToken = loginRes.body.data.accessToken;
+
+        const authRes = await request(app)
+            .get('/api/auth/mailbox')
+            .set('Authorization', `Bearer ${userToken}`);
+        expect(authRes.status).toBe(200);
+        expect(Array.isArray(authRes.body.data)).toBe(true);
+    });
 });

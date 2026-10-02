@@ -11,8 +11,8 @@ describe('Тестирование семантики кодов ошибок HT
         db.prepare('DELETE FROM login_attempts').run();
 
         const res = await request(app).post('/api/auth/login').send({
-            email: 'manager@example.com',
-            password: 'Manager123!'
+            email: 'kovalev.dmitry@bsuir.by',
+            password: 'Kovalev#Mgr2026!Sec'
         });
         managerToken = res.body.data.accessToken;
     });
@@ -44,8 +44,8 @@ describe('Тестирование семантики кодов ошибок HT
     test('3. HTTP 403 Forbidden: Попытка выполнения действия чужой роли', async () => {
         // Логинимся как исполнитель
         const eLogin = await request(app).post('/api/auth/login').send({
-            email: 'executor@example.com',
-            password: 'Executor123!'
+            email: 'morozov.maxim@bsuir.by',
+            password: 'Morozov#Dev2026!Sec'
         });
         const executorToken = eLogin.body.data.accessToken;
 

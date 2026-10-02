@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Устанавливаем зависимости с компиляцией бинарных модулей
-RUN npm ci --omit=dev
+RUN npm ci --only=production
 
 # Копируем остальной исходный код
 COPY . .

@@ -11,6 +11,21 @@
     
     <!-- Стили приложения -->
     <link rel="stylesheet" href="css/style.css">
+    
+    <!-- Мгновенная пред-инициализация без мерцания (Zero-Flicker Prehydration) -->
+    <script>
+        try {
+            const token = localStorage.getItem('access_token');
+            const userJson = localStorage.getItem('user_info');
+            if (token && userJson) {
+                const user = JSON.parse(userJson);
+                document.documentElement.classList.add('is-auth');
+                if (user && user.role) {
+                    document.documentElement.classList.add('role-' + user.role);
+                }
+            }
+        } catch (e) {}
+    </script>
 </head>
 <body>
 
@@ -30,9 +45,6 @@
 
         <!-- Блок профиля пользователя -->
         <div class="user-nav-section">
-            <button type="button" class="btn btn-outline-primary btn-mailbox" onclick="openMailboxModal()" title="Входящие сообщения электронной почты">
-                📬 Почта <span id="mailbox-badge" class="nav-badge" style="display: none;">0</span>
-            </button>
             <div id="nav-guest" class="nav-guest">
                 <button class="btn btn-outline-primary" onclick="openLoginModal()">Вход</button>
                 <button class="btn btn-primary" onclick="openRegisterModal()">Регистрация</button>
@@ -41,11 +53,14 @@
                 <div class="user-badge">
                     <span class="user-avatar">👤</span>
                     <div class="user-info-text">
-                        <span class="user-name" id="nav-user-name">Загрузка...</span>
-                        <span class="role-pill" id="nav-role-badge">Роль</span>
+                        <span class="user-name" id="nav-user-name"></span>
+                        <span class="role-pill" id="nav-role-badge"></span>
                     </div>
                 </div>
                 <div class="nav-actions">
+                    <button type="button" class="btn-icon-nav" onclick="openChangePasswordModal()" title="Сменить пароль своей учетной записи">
+                        🔑 Сменить пароль
+                    </button>
                     <button type="button" class="btn-icon-nav" onclick="openSessionsModal()" title="Контроль активных сессий">
                         💻 Сессии
                     </button>
@@ -57,6 +72,21 @@
         </div>
     </div>
 </nav>
+<script>
+    try {
+        const u = JSON.parse(localStorage.getItem('user_info') || '{}');
+        if (u && u.name) {
+            const nameEl = document.getElementById('nav-user-name');
+            if (nameEl) nameEl.textContent = u.name;
+            const rb = document.getElementById('nav-role-badge');
+            if (rb && u.role) {
+                const roleLabels = { manager: 'Руководитель', executor: 'Исполнитель', reviewer: 'Проверяющий' };
+                rb.textContent = roleLabels[u.role] || u.role;
+                rb.className = 'role-pill role-' + u.role;
+            }
+        }
+    } catch(e) {}
+</script>
 
 <!-- Основной контент страницы -->
 <main class="container">
@@ -68,6 +98,33 @@
             <p id="role-banner-desc">Описание прав текущей роли.</p>
         </div>
     </div>
+    <script>
+    (function() {
+        try {
+            const u = JSON.parse(localStorage.getItem('user_info') || '{}');
+            if (u && u.role) {
+                const banner = document.getElementById('role-banner');
+                if (banner) banner.className = 'role-banner ' + u.role;
+                const icon = document.getElementById('role-banner-icon');
+                const title = document.getElementById('role-banner-title');
+                const desc = document.getElementById('role-banner-desc');
+                if (u.role === 'manager') {
+                    if (icon) icon.textContent = '👔';
+                    if (title) title.textContent = 'Вы вошли как Руководитель (' + u.name + ')';
+                    if (desc) desc.textContent = 'Вам доступны: создание задач, назначение исполнителей и проверяющих, редактирование любых полей и удаление задач.';
+                } else if (u.role === 'executor') {
+                    if (icon) icon.textContent = '🔨';
+                    if (title) title.textContent = 'Вы вошли как Исполнитель (' + u.name + ')';
+                    if (desc) desc.textContent = 'Вам доступны: взятие назначенных задач в работу (Ожидает ➔ В работе) и отправка на проверку (В работе ➔ На проверке). Удаление и самостоятельное закрытие задач запрещено.';
+                } else if (u.role === 'reviewer') {
+                    if (icon) icon.textContent = '🔍';
+                    if (title) title.textContent = 'Вы вошли как Проверяющий (' + u.name + ')';
+                    if (desc) desc.textContent = 'Вам доступны: проверка задач в статусе «На проверке», утверждение (➔ Завершено) или возврат на доработку (➔ На доработке) с обязательным комментарием замечаний.';
+                }
+            }
+        } catch(e) {}
+    })();
+    </script>
 
     <!-- Блок глобальных предупреждений/ошибок -->
     <div id="global-alert" class="alert alert-danger" style="display: none;">
@@ -95,17 +152,42 @@
                 <div class="form-group flex-1">
                     <label for="task-executor">🔨 Назначить исполнителя:</label>
                     <select id="task-executor" name="executorId">
-                        <option value="">-- Выберите исполнителя --</option>
+                        <option value="">-- Не назначен --</option>
                     </select>
                 </div>
 
                 <div class="form-group flex-1">
                     <label for="task-reviewer">🔍 Назначить проверяющего:</label>
                     <select id="task-reviewer" name="reviewerId">
-                        <option value="">-- Выберите проверяющего --</option>
+                        <option value="">-- Не назначен --</option>
                     </select>
                 </div>
             </div>
+            <script>
+            (function() {
+                try {
+                    const cached = JSON.parse(localStorage.getItem('cached_users') || '[]');
+                    const draftExec = localStorage.getItem('draft_executor');
+                    const draftRev = localStorage.getItem('draft_reviewer');
+
+                    const execSelect = document.getElementById('task-executor');
+                    const revSelect = document.getElementById('task-reviewer');
+
+                    if (execSelect && Array.isArray(cached) && cached.length) {
+                        const execs = cached.filter(u => u.role === 'executor');
+                        execSelect.innerHTML = '<option value="">-- Не назначен --</option>' +
+                            execs.map(u => '<option value="' + u.id + '">' + u.name + ' (Исполнитель)</option>').join('');
+                        if (draftExec) execSelect.value = draftExec;
+                    }
+                    if (revSelect && Array.isArray(cached) && cached.length) {
+                        const revs = cached.filter(u => u.role === 'reviewer');
+                        revSelect.innerHTML = '<option value="">-- Не назначен --</option>' +
+                            revs.map(u => '<option value="' + u.id + '">' + u.name + ' (Проверяющий)</option>').join('');
+                        if (draftRev) revSelect.value = draftRev;
+                    }
+                } catch(e) {}
+            })();
+            </script>
 
             <div class="form-row">
                 <div class="form-group flex-1">
@@ -133,8 +215,8 @@
         </form>
     </section>
 
-    <!-- Панель управления списком (поиск и фильтры) -->
-    <section class="controls-panel">
+    <!-- Панель управления списком (поиск и фильтры, отображается только авторизованным) -->
+    <section class="controls-panel" id="controls-panel" style="display: none;">
         <div class="search-box">
             <span class="search-icon">🔍</span>
             <input type="text" id="search-input" placeholder="Поиск по названию или описанию..." autocomplete="off">
@@ -164,8 +246,8 @@
     </section>
 
     <!-- Список задач -->
-    <section class="tasks-section">
-        <div class="tasks-header">
+    <section class="tasks-section" id="tasks-section">
+        <div class="tasks-header" id="tasks-header" style="display: none;">
             <h2>Список задач</h2>
         </div>
 
@@ -180,9 +262,9 @@
 
         <!-- Состояние пустого списка -->
         <div id="empty-state" class="empty-state" style="display: none;">
-            <div class="empty-icon">📭</div>
-            <p class="empty-title">Задачи не найдены</p>
-            <p class="empty-subtitle">Войдите как Руководитель для создания задач или измените параметры фильтра.</p>
+            <div class="empty-icon" id="empty-icon">📭</div>
+            <p class="empty-title" id="empty-title">Задачи не найдены</p>
+            <div class="empty-subtitle" id="empty-subtitle">Войдите как Руководитель для создания задач или измените параметры фильтра.</div>
         </div>
     </section>
 </main>
@@ -204,13 +286,13 @@
                         Быстрый вход для 3 ролей (ЛР3):
                     </div>
                     <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('manager@example.com', 'Manager123!')" title="Руководитель">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('kovalev.dmitry@bsuir.by', 'Kovalev#Mgr2026!Sec')" title="Руководитель">
                             👔 Руководитель
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('executor@example.com', 'Executor123!')" title="Исполнитель">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('morozov.maxim@bsuir.by', 'Morozov#Dev2026!Sec')" title="Исполнитель">
                             🔨 Исполнитель
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('reviewer@example.com', 'Reviewer123!')" title="Проверяющий">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="fillLoginForm('novikova.anna@bsuir.by', 'Novikova#Rev2026!Sec')" title="Проверяющий">
                             🔍 Проверяющий
                         </button>
                     </div>
@@ -346,29 +428,43 @@
     </div>
 </div>
 
-<!-- МОДАЛЬНОЕ ОКНО: ВСТРОЕННЫЙ ПОЧТОВЫЙ ЯЩИК -->
-<div id="mailbox-modal" class="modal" aria-hidden="true">
-    <div class="modal-backdrop" onclick="closeMailboxModal()"></div>
-    <div class="modal-dialog modal-md">
+<!-- МОДАЛЬНОЕ ОКНО: СМЕНА ПАРОЛЯ ДЛЯ СЕБЯ (АВТОРИЗОВАННЫЙ ПОЛЬЗОВАТЕЛЬ) -->
+<div id="change-password-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeChangePasswordModal()"></div>
+    <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>📬 Почтовый ящик (Входящие сообщения)</h3>
-                <button type="button" class="modal-close-btn" onclick="closeMailboxModal()">✕</button>
+                <h3>🔑 Смена личного пароля</h3>
+                <button type="button" class="modal-close-btn" onclick="closeChangePasswordModal()">✕</button>
             </div>
-            <div class="modal-body">
-                <div class="mailbox-toolbar">
-                    <span class="mailbox-info-text">Входящие электронные письма системы</span>
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="loadMailbox()">🔄 Обновить</button>
+            <form id="change-password-form" novalidate>
+                <p class="modal-hint">Вы можете изменить пароль только для своей учетной записи.</p>
+                <div id="change-password-errors" class="validation-summary" style="display: none;"></div>
+
+                <div class="form-group">
+                    <label for="change-curr-password">Текущий пароль <span class="required-star">*</span>:</label>
+                    <input type="password" id="change-curr-password" name="currentPassword" required autocomplete="current-password" placeholder="Введите текущий пароль...">
                 </div>
-                <div id="mailbox-list" class="mailbox-list"></div>
-                <div id="mailbox-view" class="mailbox-view" style="display: none;"></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeMailboxModal()">Закрыть</button>
-            </div>
+
+                <div class="form-group">
+                    <label for="change-new-password">Новый пароль (мин. 8 знаков, заглавная, цифра) <span class="required-star">*</span>:</label>
+                    <input type="password" id="change-new-password" name="newPassword" required autocomplete="new-password" placeholder="Новый надежный пароль...">
+                </div>
+
+                <div class="form-group">
+                    <label for="change-confirm-password">Подтверждение нового пароля <span class="required-star">*</span>:</label>
+                    <input type="password" id="change-confirm-password" name="confirmPassword" required autocomplete="new-password" placeholder="Повторите новый пароль...">
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeChangePasswordModal()">Отмена</button>
+                    <button type="submit" id="btn-change-pass-submit" class="btn btn-primary">Обновить пароль</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
+
 
 <!-- МОДАЛЬНОЕ ОКНО: КОНТРОЛЬ АКТИВНЫХ СЕССИЙ (УСТРОЙСТВ) -->
 <div id="sessions-modal" class="modal" aria-hidden="true">
@@ -408,6 +504,19 @@
                 <input type="hidden" id="review-task-id">
                 <p style="margin-bottom: 14px;">Задача: <strong id="review-task-title"></strong></p>
 
+                <!-- Блок с отчетом исполнителя для проверяющего -->
+                <div id="review-executor-report-box" style="display: none; margin-bottom: 14px; padding: 10px 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+                    <div style="font-size: 11px; font-weight: 700; color: #166534; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px;">
+                        📦 Отчет исполнителя:
+                    </div>
+                    <div id="review-report-comment-text" style="font-size: 13px; color: #1e293b; margin-bottom: 8px; line-height: 1.4;"></div>
+                    <div id="review-report-attachment-box" style="display: none;">
+                        <a id="review-report-download-link" href="#" class="task-report-link" target="_blank" download>
+                            📥 Скачать прикрепленный отчет (архив)
+                        </a>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="review-decision">Решение проверки:</label>
                     <select id="review-decision" name="status" onchange="toggleReviewCommentRequired()">
@@ -424,6 +533,44 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeReviewModal()">Отмена</button>
                     <button type="submit" id="btn-save-review" class="btn btn-primary">Подтвердить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛЬНОЕ ОКНО: СДАЧА РАБОТЫ НА ПРОВЕРКУ С ПРИКРЕПЛЕНИЕМ ОТЧЕТА (ИСПОЛНИТЕЛЬ) -->
+<div id="submit-report-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeSubmitReportModal()"></div>
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📤 Сдача работы на проверку</h3>
+                <button type="button" class="modal-close-btn" onclick="closeSubmitReportModal()">✕</button>
+            </div>
+            <form id="submit-report-form" novalidate>
+                <input type="hidden" id="submit-report-task-id" name="id">
+                <p style="margin-bottom: 14px;">Задача: <strong id="submit-report-task-title"></strong></p>
+
+                <div class="form-group">
+                    <label for="submit-report-comment">📝 Отчет о выполненной работе / комментарий:</label>
+                    <textarea id="submit-report-comment" name="reportComment" rows="3" placeholder="Опишите, что было реализовано, результаты тестирования, инструкцию по сборке или ссылку на репозиторий..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="submit-report-file">📦 Прикрепить файл отчета / архив (ZIP, RAR, PDF, DOCX, код до 15 МБ):</label>
+                    <div id="existing-report-box" style="display: none; margin-bottom: 8px; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;">
+                        Ранее загружен: 📎 <span id="existing-report-filename" style="font-weight: 600;"></span>
+                    </div>
+                    <input type="file" id="submit-report-file" name="reportFile">
+                    <small class="file-hint">Прикрепите ZIP-архив с проектом, документ или файлы с результатами работы.</small>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeSubmitReportModal()">Отмена</button>
+                    <button type="submit" id="btn-confirm-submit-report" class="btn btn-warning">
+                        📤 Сдать на проверку
+                    </button>
                 </div>
             </form>
         </div>

@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
 const config = require('./config');
+const { fixOriginalName } = require('./utils/fileUtils');
 
 // Убеждаемся в наличии папки для БД
 const dbDir = path.dirname(config.DB_PATH);
@@ -42,6 +43,9 @@ db.exec(`
         review_comment TEXT,
         attachment_filename TEXT,
         attachment_original_name TEXT,
+        report_filename TEXT,
+        report_original_name TEXT,
+        report_comment TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -80,25 +84,74 @@ db.exec(`
     );
 `);
 
+// Миграция схемы для добавления полей отчета исполнителя (если база уже существовала)
+const taskCols = db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name);
+if (!taskCols.includes('report_filename')) {
+    db.prepare('ALTER TABLE tasks ADD COLUMN report_filename TEXT').run();
+}
+if (!taskCols.includes('report_original_name')) {
+    db.prepare('ALTER TABLE tasks ADD COLUMN report_original_name TEXT').run();
+}
+if (!taskCols.includes('report_comment')) {
+    db.prepare('ALTER TABLE tasks ADD COLUMN report_comment TEXT').run();
+}
+
+// Автоматическое исправление кодировки имен существующих вложений в БД (кириллица / CP1252)
+try {
+    const existingTasks = db.prepare('SELECT id, attachment_original_name, report_original_name FROM tasks WHERE attachment_original_name IS NOT NULL OR report_original_name IS NOT NULL').all();
+    const updateStmt = db.prepare('UPDATE tasks SET attachment_original_name = ?, report_original_name = ? WHERE id = ?');
+    for (const t of existingTasks) {
+        const fixedAttach = fixOriginalName(t.attachment_original_name);
+        const fixedReport = fixOriginalName(t.report_original_name);
+        if (fixedAttach !== t.attachment_original_name || fixedReport !== t.report_original_name) {
+            updateStmt.run(fixedAttach, fixedReport, t.id);
+        }
+    }
+} catch {
+    // Игнорируем ошибки авто-исправления при первой инициализации
+}
+
 function seedDatabase() {
     const insertUser = db.prepare(`
         INSERT OR IGNORE INTO users (name, email, password_hash, role)
         VALUES (?, ?, ?, ?)
     `);
 
-    const managerHash = bcrypt.hashSync('Manager123!', config.BCRYPT_SALT_ROUNDS);
-    const executorHash = bcrypt.hashSync('Executor123!', config.BCRYPT_SALT_ROUNDS);
-    const reviewerHash = bcrypt.hashSync('Reviewer123!', config.BCRYPT_SALT_ROUNDS);
+    // Новые надежные и уникальные пароли, исключающие ложное срабатывание о проверке утечек данных (Chrome Data Breach Warning)
+    const managerPass = 'Kovalev#Mgr2026!Sec';
+    const executorPass = 'Morozov#Dev2026!Sec';
+    const reviewerPass = 'Novikova#Rev2026!Sec';
+    const yanaPass = 'Alexeychik#2026!Sec';
+
+    const managerHash = bcrypt.hashSync(managerPass, config.BCRYPT_SALT_ROUNDS);
+    const executorHash = bcrypt.hashSync(executorPass, config.BCRYPT_SALT_ROUNDS);
+    const reviewerHash = bcrypt.hashSync(reviewerPass, config.BCRYPT_SALT_ROUNDS);
+    const yanaHash = bcrypt.hashSync(yanaPass, config.BCRYPT_SALT_ROUNDS);
+
+    // Миграция со старых скомпрометированных логинов/паролей (если база уже существовала)
+    db.prepare("UPDATE users SET email = 'kovalev.dmitry@bsuir.by', password_hash = ? WHERE email = 'manager@example.com'").run(managerHash);
+    db.prepare("UPDATE users SET email = 'morozov.maxim@bsuir.by', password_hash = ? WHERE email = 'executor@example.com'").run(executorHash);
+    db.prepare("UPDATE users SET email = 'novikova.anna@bsuir.by', password_hash = ? WHERE email = 'reviewer@example.com'").run(reviewerHash);
+
+    // Обновляем хэши паролей для пользователей
+    db.prepare("UPDATE users SET password_hash = ? WHERE email = 'kovalev.dmitry@bsuir.by'").run(managerHash);
+    db.prepare("UPDATE users SET password_hash = ? WHERE email = 'morozov.maxim@bsuir.by'").run(executorHash);
+    db.prepare("UPDATE users SET password_hash = ? WHERE email = 'novikova.anna@bsuir.by'").run(reviewerHash);
+
+    // Снимаем блокировки учетных записей при рестарте
+    db.prepare("UPDATE users SET is_locked = 0, locked_until = NULL WHERE email IN ('kovalev.dmitry@bsuir.by', 'morozov.maxim@bsuir.by', 'novikova.anna@bsuir.by', 'arikhartmen75@gmail.com')").run();
 
     // 1. Создаем или сохраняем 3 роли для лабораторной работы
-    insertUser.run('Дмитрий Ковалев', 'manager@example.com', managerHash, config.ROLES.MANAGER);
-    insertUser.run('Максим Морозов', 'executor@example.com', executorHash, config.ROLES.EXECUTOR);
-    insertUser.run('Анна Новикова', 'reviewer@example.com', reviewerHash, config.ROLES.REVIEWER);
+    insertUser.run('Дмитрий Ковалев', 'kovalev.dmitry@bsuir.by', managerHash, config.ROLES.MANAGER);
+    insertUser.run('Максим Морозов', 'morozov.maxim@bsuir.by', executorHash, config.ROLES.EXECUTOR);
+    insertUser.run('Анна Новикова', 'novikova.anna@bsuir.by', reviewerHash, config.ROLES.REVIEWER);
 
     // Реальный пользователь для демонстрации восстановления через личный email
     const yana = db.prepare("SELECT * FROM users WHERE email = 'arikhartmen75@gmail.com'").get();
     if (!yana) {
-        insertUser.run('Яна Алексейчик', 'arikhartmen75@gmail.com', managerHash, config.ROLES.MANAGER);
+        insertUser.run('Яна Алексейчик', 'arikhartmen75@gmail.com', yanaHash, config.ROLES.MANAGER);
+    } else {
+        db.prepare("UPDATE users SET password_hash = ? WHERE email = 'arikhartmen75@gmail.com'").run(yanaHash);
     }
 
     // 2. Демонстрационные задачи с назначенными исполнителями и проверяющими
@@ -152,6 +205,7 @@ seedDatabase();
 
 /**
  * Вспомогательная функция приведения сущности задачи к публичному API
+ * Не распространяет приватные адреса электронной почты других пользователей
  */
 function formatTask(row) {
     if (!row) return null;
@@ -161,15 +215,22 @@ function formatTask(row) {
         description: row.description || '',
         dueDate: row.due_date || '',
         status: row.status,
-        creator: row.creator_name ? { id: row.creator_id, name: row.creator_name, email: row.creator_email } : { id: row.creator_id },
-        executor: row.executor_name ? { id: row.executor_id, name: row.executor_name, email: row.executor_email } : (row.executor_id ? { id: row.executor_id } : null),
-        reviewer: row.reviewer_name ? { id: row.reviewer_id, name: row.reviewer_name, email: row.reviewer_email } : (row.reviewer_id ? { id: row.reviewer_id } : null),
+        creator: row.creator_name ? { id: row.creator_id, name: row.creator_name } : { id: row.creator_id },
+        executor: row.executor_name ? { id: row.executor_id, name: row.executor_name } : (row.executor_id ? { id: row.executor_id } : null),
+        reviewer: row.reviewer_name ? { id: row.reviewer_id, name: row.reviewer_name } : (row.reviewer_id ? { id: row.reviewer_id } : null),
         reviewComment: row.review_comment || '',
+        reportComment: row.report_comment || '',
         attachment: row.attachment_filename ? {
             filename: row.attachment_filename,
-            originalName: row.attachment_original_name,
+            originalName: fixOriginalName(row.attachment_original_name),
             url: `/uploads/${row.attachment_filename}`,
             downloadUrl: `/api/tasks/${row.id}/attachment`
+        } : null,
+        reportAttachment: row.report_filename ? {
+            filename: row.report_filename,
+            originalName: fixOriginalName(row.report_original_name),
+            url: `/uploads/${row.report_filename}`,
+            downloadUrl: `/api/tasks/${row.id}/report`
         } : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at

@@ -7,6 +7,7 @@ const TaskService = require('../services/taskService');
 const { authenticateToken, requireRoles } = require('../middleware/auth');
 const config = require('../config');
 const ApiError = require('../errors/ApiError');
+const { fixOriginalName } = require('../utils/fileUtils');
 
 // Создаем папку загрузок при необходимости
 if (!fs.existsSync(config.UPLOADS_DIR)) {
@@ -19,6 +20,7 @@ const storage = multer.diskStorage({
         cb(null, config.UPLOADS_DIR);
     },
     filename: (req, file, cb) => {
+        file.originalname = fixOriginalName(file.originalname);
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, uniqueSuffix + path.extname(file.originalname));
     }
@@ -30,6 +32,29 @@ const upload = multer({
         fileSize: 15 * 1024 * 1024 // 15 МБ
     }
 });
+
+/**
+ * Middleware для нормализации кодировки имен файлов (исправление искажений кириллицы из busboy/multer)
+ */
+const normalizeUploadedFiles = (req, res, next) => {
+    if (req.file) {
+        req.file.originalname = fixOriginalName(req.file.originalname);
+    }
+    if (req.files) {
+        if (Array.isArray(req.files)) {
+            req.files.forEach(f => {
+                f.originalname = fixOriginalName(f.originalname);
+            });
+        } else {
+            Object.values(req.files).forEach(arr => {
+                arr.forEach(f => {
+                    f.originalname = fixOriginalName(f.originalname);
+                });
+            });
+        }
+    }
+    next();
+};
 
 // Все маршруты задач требуют аутентификации по временному ключу JWT
 router.use(authenticateToken);
@@ -72,7 +97,7 @@ router.get('/:id', (req, res, next) => {
  * 3. POST /api/tasks - Создание новой задачи
  * RBAC: Разрешено только роли "Руководитель" (manager)
  */
-router.post('/', requireRoles(config.ROLES.MANAGER), upload.single('attachment'), (req, res, next) => {
+router.post('/', requireRoles(config.ROLES.MANAGER), upload.single('attachment'), normalizeUploadedFiles, (req, res, next) => {
     try {
         const newTask = TaskService.createTask(req.body, req.file, req.user);
 
@@ -92,7 +117,7 @@ router.post('/', requireRoles(config.ROLES.MANAGER), upload.single('attachment')
  * 4. PUT /api/tasks/:id - Полное обновление задачи
  * RBAC: Разрешено только роли "Руководитель" (manager)
  */
-router.put('/:id', requireRoles(config.ROLES.MANAGER), upload.single('attachment'), (req, res, next) => {
+router.put('/:id', requireRoles(config.ROLES.MANAGER), upload.single('attachment'), normalizeUploadedFiles, (req, res, next) => {
     try {
         const updatedTask = TaskService.updateTask(req.params.id, req.body, req.file, req.user);
         res.status(200).json({
@@ -109,9 +134,13 @@ router.put('/:id', requireRoles(config.ROLES.MANAGER), upload.single('attachment
  * 5. PATCH /api/tasks/:id - Частичное обновление / изменение статуса задачи
  * RBAC: Доступно всем 3 ролям, логика разрешенных переходов проверяется в TaskService.patchTask
  */
-router.patch('/:id', upload.single('attachment'), (req, res, next) => {
+router.patch('/:id', upload.fields([
+    { name: 'reportFile', maxCount: 1 },
+    { name: 'attachment', maxCount: 1 }
+]), normalizeUploadedFiles, (req, res, next) => {
     try {
-        const patchedTask = TaskService.patchTask(req.params.id, req.body, req.file, req.user);
+        const file = req.files?.reportFile?.[0] || req.files?.attachment?.[0] || req.file;
+        const patchedTask = TaskService.patchTask(req.params.id, req.body, file, req.user);
         res.status(200).json({
             success: true,
             message: 'Статус задачи успешно обновлен',
@@ -140,7 +169,7 @@ router.delete('/:id', requireRoles(config.ROLES.MANAGER), (req, res, next) => {
 });
 
 /**
- * 7. GET /api/tasks/:id/attachment - Скачивание прикрепленного файла
+ * 7. GET /api/tasks/:id/attachment - Скачивание прикрепленного файла ТЗ
  */
 router.get('/:id/attachment', (req, res, next) => {
     try {
@@ -155,7 +184,31 @@ router.get('/:id/attachment', (req, res, next) => {
             throw ApiError.notFound('Файл отсутствует на диске сервера', 'FILE_MISSING');
         }
 
-        res.download(filePath, task.attachment.originalName || task.attachment.filename);
+        const downloadName = fixOriginalName(task.attachment.originalName || task.attachment.filename);
+        res.download(filePath, downloadName);
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
+ * 8. GET /api/tasks/:id/report - Скачивание прикрепленного отчета исполнителя (ZIP/файл)
+ */
+router.get('/:id/report', (req, res, next) => {
+    try {
+        const task = TaskService.getTaskById(req.params.id);
+
+        if (!task.reportAttachment || !task.reportAttachment.filename) {
+            throw ApiError.notFound('Файл отчета о работе у этой задачи отсутствует', 'REPORT_NOT_FOUND');
+        }
+
+        const filePath = path.join(config.UPLOADS_DIR, task.reportAttachment.filename);
+        if (!fs.existsSync(filePath)) {
+            throw ApiError.notFound('Файл отчета отсутствует на диске сервера', 'FILE_MISSING');
+        }
+
+        const downloadName = fixOriginalName(task.reportAttachment.originalName || task.reportAttachment.filename);
+        res.download(filePath, downloadName);
     } catch (err) {
         next(err);
     }

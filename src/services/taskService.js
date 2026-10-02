@@ -4,6 +4,7 @@ const { db, formatTask } = require('../db');
 const config = require('../config');
 const ApiError = require('../errors/ApiError');
 const logger = require('../logger');
+const { fixOriginalName } = require('../utils/fileUtils');
 
 class TaskService {
     /**
@@ -96,6 +97,49 @@ class TaskService {
     }
 
     /**
+     * Валидация ролей исполнителя (только executor) и проверяющего (только reviewer)
+     */
+    static validateAssignees(executorIdRaw, reviewerIdRaw, errors) {
+        let executorId = null;
+        if (executorIdRaw !== undefined && executorIdRaw !== null && executorIdRaw !== '') {
+            executorId = Number(executorIdRaw);
+            if (isNaN(executorId)) {
+                errors.push({ field: 'executorId', message: 'Некорректный идентификатор исполнителя' });
+            } else {
+                const execUser = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(executorId);
+                if (!execUser) {
+                    errors.push({ field: 'executorId', message: 'Назначенный исполнитель не найден в системе' });
+                } else if (execUser.role !== config.ROLES.EXECUTOR) {
+                    errors.push({
+                        field: 'executorId',
+                        message: `Исполнителем может быть назначен только пользователь с ролью "Исполнитель". Роль пользователя ${execUser.name}: "${execUser.role}"`
+                    });
+                }
+            }
+        }
+
+        let reviewerId = null;
+        if (reviewerIdRaw !== undefined && reviewerIdRaw !== null && reviewerIdRaw !== '') {
+            reviewerId = Number(reviewerIdRaw);
+            if (isNaN(reviewerId)) {
+                errors.push({ field: 'reviewerId', message: 'Некорректный идентификатор проверяющего' });
+            } else {
+                const revUser = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(reviewerId);
+                if (!revUser) {
+                    errors.push({ field: 'reviewerId', message: 'Назначенный проверяющий не найден в системе' });
+                } else if (revUser.role !== config.ROLES.REVIEWER) {
+                    errors.push({
+                        field: 'reviewerId',
+                        message: `Проверяющим может быть назначен только пользователь с ролью "Проверяющий". Роль пользователя ${revUser.name}: "${revUser.role}"`
+                    });
+                }
+            }
+        }
+
+        return { executorId, reviewerId };
+    }
+
+    /**
      * Создание новой задачи (доступно руководителю)
      */
     static createTask(data, file, currentUser) {
@@ -112,13 +156,13 @@ class TaskService {
             errors.push({ field: 'title', message: 'Длина названия не должна превышать 255 символов' });
         }
 
+        const { executorId, reviewerId } = this.validateAssignees(data.executorId, data.reviewerId, errors);
+
         if (errors.length > 0) {
             if (file) this.cleanupFile(file.filename);
             throw ApiError.unprocessableEntity('Ошибка валидации данных задачи', errors);
         }
 
-        const executorId = data.executorId ? Number(data.executorId) : null;
-        const reviewerId = data.reviewerId ? Number(data.reviewerId) : null;
         const initialStatus = data.status || config.TASK_STATUSES.PENDING;
 
         const stmt = db.prepare(`
@@ -135,7 +179,7 @@ class TaskService {
             executorId,
             reviewerId,
             file ? file.filename : null,
-            file ? file.originalname : null
+            file ? fixOriginalName(file.originalname) : null
         );
 
         logger.audit('TASK_CREATED', {
@@ -163,6 +207,10 @@ class TaskService {
             errors.push({ field: 'title', message: 'Название задачи обязательно для заполнения' });
         }
 
+        const candidateExec = data.executorId !== undefined ? data.executorId : existingTask.executor?.id;
+        const candidateRev = data.reviewerId !== undefined ? data.reviewerId : existingTask.reviewer?.id;
+        const { executorId, reviewerId } = this.validateAssignees(candidateExec, candidateRev, errors);
+
         if (errors.length > 0) {
             if (file) this.cleanupFile(file.filename);
             throw ApiError.unprocessableEntity('Ошибка валидации данных задачи', errors);
@@ -184,11 +232,8 @@ class TaskService {
                 this.cleanupFile(attachmentFilename);
             }
             attachmentFilename = file.filename;
-            attachmentOriginalName = file.originalname;
+            attachmentOriginalName = fixOriginalName(file.originalname);
         }
-
-        const executorId = data.executorId !== undefined ? (data.executorId ? Number(data.executorId) : null) : existingTask.executor?.id;
-        const reviewerId = data.reviewerId !== undefined ? (data.reviewerId ? Number(data.reviewerId) : null) : existingTask.reviewer?.id;
 
         db.prepare(`
             UPDATE tasks
@@ -224,14 +269,28 @@ class TaskService {
         const { role } = currentUser;
         const newStatus = data.status;
         const reviewComment = data.reviewComment !== undefined ? data.reviewComment : task.reviewComment;
+        const reportComment = data.reportComment !== undefined ? data.reportComment.trim() : task.reportComment;
 
         let attachmentFilename = task.attachment ? task.attachment.filename : null;
         let attachmentOriginalName = task.attachment ? task.attachment.originalName : null;
 
+        let reportFilename = task.reportAttachment ? task.reportAttachment.filename : null;
+        let reportOriginalName = task.reportAttachment ? task.reportAttachment.originalName : null;
+
         if (file) {
-            if (attachmentFilename) this.cleanupFile(attachmentFilename);
-            attachmentFilename = file.filename;
-            attachmentOriginalName = file.originalname;
+            const isReportUpload = role === config.ROLES.EXECUTOR || 
+                                   newStatus === config.TASK_STATUSES.IN_REVIEW || 
+                                   file.fieldname === 'reportFile';
+
+            if (isReportUpload) {
+                if (reportFilename) this.cleanupFile(reportFilename);
+                reportFilename = file.filename;
+                reportOriginalName = fixOriginalName(file.originalname);
+            } else {
+                if (attachmentFilename) this.cleanupFile(attachmentFilename);
+                attachmentFilename = file.filename;
+                attachmentOriginalName = fixOriginalName(file.originalname);
+            }
         }
 
         if (newStatus && newStatus !== task.status) {
@@ -283,15 +342,34 @@ class TaskService {
             UPDATE tasks
             SET status = COALESCE(?, status),
                 review_comment = ?,
+                report_comment = ?,
+                report_filename = ?,
+                report_original_name = ?,
                 attachment_filename = ?,
                 attachment_original_name = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        `).run(newStatus || null, reviewComment, attachmentFilename, attachmentOriginalName, task.id);
+        `).run(
+            newStatus || null,
+            reviewComment,
+            reportComment,
+            reportFilename,
+            reportOriginalName,
+            attachmentFilename,
+            attachmentOriginalName,
+            task.id
+        );
 
         logger.audit('TASK_STATUS_CHANGED', {
             user: currentUser,
-            details: { taskId: task.id, fromStatus: task.status, toStatus: newStatus || task.status, reviewComment }
+            details: { 
+                taskId: task.id, 
+                fromStatus: task.status, 
+                toStatus: newStatus || task.status, 
+                reviewComment,
+                reportComment: reportComment || undefined,
+                hasReportFile: !!reportFilename
+            }
         });
 
         return this.getTaskById(task.id);
@@ -310,6 +388,9 @@ class TaskService {
 
         if (task.attachment && task.attachment.filename) {
             this.cleanupFile(task.attachment.filename);
+        }
+        if (task.reportAttachment && task.reportAttachment.filename) {
+            this.cleanupFile(task.reportAttachment.filename);
         }
 
         db.prepare('DELETE FROM tasks WHERE id = ?').run(task.id);

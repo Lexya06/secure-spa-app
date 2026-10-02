@@ -166,32 +166,57 @@ router.post('/forgot-password', async (req, res, next) => {
 
         const result = await AuthService.forgotPassword(email, baseUrl);
 
-        res.status(200).json({
+        const responsePayload = {
             success: true,
             message: result.message,
-            email: result.email,
-            resetUrl: result.resetUrl,
-            emailRecord: result.emailRecord,
-            resetToken: result.debugToken,
-            debugToken: result.debugToken
-        });
+            deliveryMethod: result.deliveryMethod
+        };
+
+        // В среде Jest тестов возвращаем debugToken для тестирования процесса
+        if (process.env.NODE_ENV === 'test' && result.debugToken) {
+            responsePayload.debugToken = result.debugToken;
+        }
+
+        res.status(200).json(responsePayload);
     } catch (err) {
         next(err);
     }
 });
 
 /**
- * 9.1. Получение писем из встроенного почтового ящика (входящие для пользователя)
+ * 9.1. Получение писем из личного почтового ящика текущего пользователя
  * GET /api/auth/mailbox (200 OK)
+ * Строго требует аутентификации и отдает письма ТОЛЬКО для личной почты вошедшего пользователя!
  */
-router.get('/mailbox', (req, res) => {
-    const { email } = req.query;
-    const emails = mailer.getSentEmails(email);
+router.get('/mailbox', authenticateToken, (req, res) => {
+    const emails = mailer.getSentEmails(req.user.email);
     res.status(200).json({
         success: true,
         count: emails.length,
         data: emails
     });
+});
+
+/**
+ * 9.2. Смена пароля текущим пользователем для своей учетной записи
+ * POST /api/auth/change-password (200 OK)
+ */
+router.post('/change-password', authenticateToken, async (req, res, next) => {
+    try {
+        const ipAddress = req.ip || req.connection?.remoteAddress;
+        const result = await AuthService.changePassword(
+            req.user.id,
+            req.body,
+            { ipAddress, sessionId: req.user.sessionId }
+        );
+
+        res.status(200).json({
+            success: true,
+            message: result.message
+        });
+    } catch (err) {
+        next(err);
+    }
 });
 
 /**
@@ -215,9 +240,10 @@ router.post('/reset-password', async (req, res, next) => {
 /**
  * 11. Получение списка пользователей (для выбора исполнителей и проверяющих)
  * GET /api/auth/users (200 OK)
+ * Приватная почта пользователей скрыта для соблюдения конфиденциальности
  */
 router.get('/users', authenticateToken, (req, res) => {
-    const rows = db.prepare('SELECT id, name, email, role FROM users ORDER BY name ASC').all();
+    const rows = db.prepare('SELECT id, name, role FROM users ORDER BY name ASC').all();
     res.status(200).json({
         success: true,
         data: rows

@@ -559,6 +559,31 @@ textarea:focus {
     gap: 12px;
 }
 
+/* Устранение мерцания при перезагрузке страницы (F5) */
+html.is-auth #nav-guest {
+    display: none !important;
+}
+html.is-auth #nav-auth {
+    display: flex !important;
+}
+html.is-auth #tasks-header {
+    display: flex !important;
+}
+html.is-auth #controls-panel {
+    display: flex !important;
+}
+html.is-auth #role-banner {
+    display: flex !important;
+}
+
+/* Ролевая видимость секции создания задачи без прыжков */
+html.role-manager #manager-create-section {
+    display: block !important;
+}
+html:not(.role-manager) #manager-create-section {
+    display: none !important;
+}
+
 /* Карточка задачи */
 .task-item {
     background: #ffffff;
@@ -567,7 +592,10 @@ textarea:focus {
     padding: 18px;
     box-shadow: var(--shadow-sm);
     border-left: 6px solid var(--gray-300);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+                box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+                border-color 0.2s ease,
+                background-color 0.2s ease;
 }
 
 .task-item:hover {
@@ -640,6 +668,16 @@ textarea:focus {
     margin-bottom: 12px;
 }
 
+.task-report-box {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: #166534;
+    margin-bottom: 12px;
+}
+
 .task-item-footer {
     display: flex;
     justify-content: space-between;
@@ -660,6 +698,24 @@ textarea:focus {
 }
 .task-attachment-link:hover {
     text-decoration: underline;
+}
+
+.task-report-link {
+    font-size: 12px;
+    color: #15803d;
+    background: #dcfce7;
+    border: 1px solid #86efac;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+}
+.task-report-link:hover {
+    background: #bbf7d0;
+    text-decoration: none;
 }
 
 .task-actions {

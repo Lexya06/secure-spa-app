@@ -4,7 +4,7 @@ const fs = require('fs');
 // Автоматическая загрузка конфигурации из .env, если файл существует
 const envPath = path.join(__dirname, '..', '.env');
 if (fs.existsSync(envPath)) {
-    require('dotenv').config({ path: envPath });
+    require('dotenv').config({ path: envPath, quiet: true });
 }
 
 module.exports = {

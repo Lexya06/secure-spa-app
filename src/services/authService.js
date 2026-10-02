@@ -352,8 +352,8 @@ class AuthService {
         // Аннулируем предыдущие неиспользованные токены сброса для этого пользователя
         db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(user.id);
 
-        // Генерируем криптостойкий токен
-        const rawToken = crypto.randomBytes(32).toString('hex');
+        // Генерируем удобный 6-значный одноразовый код подтверждения (Verification Code)
+        const rawToken = String(crypto.randomInt(100000, 999999));
         const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
         const expiresAt = new Date();
@@ -365,31 +365,92 @@ class AuthService {
         `).run(user.id, tokenHash, expiresAt.toISOString());
 
         const resetUrl = `${reqBaseUrl}/#reset-password?token=${rawToken}`;
-        let mailResult = null;
+
         try {
-            mailResult = await sendPasswordResetEmail(user.email, rawToken, resetUrl);
+            await sendPasswordResetEmail(user.email, rawToken, resetUrl);
         } catch (mailErr) {
-            logger.warn(`[FORGOT PASSWORD] Ошибка отправки письма: ${mailErr.message}`);
+            logger.error(`[FORGOT PASSWORD] Ошибка отправки письма: ${mailErr.message}`);
+            throw ApiError.badRequest(mailErr.message, 'EMAIL_SEND_FAILED');
         }
 
         logger.audit('PASSWORD_RESET_REQUESTED', {
             user: { id: user.id, email: user.email },
-            details: { resetToken: rawToken }
+            details: { resetToken: rawToken, deliveryMethod: 'resend' }
         });
 
-        console.log('\n======================================================');
-        console.log(`[СБРОС ПАРОЛЯ] Запрос для: ${user.email}`);
-        console.log(`[ТОКЕН ВОССТАНОВЛЕНИЯ]: ${rawToken}`);
-        console.log(`[ССЫЛКА ДЛЯ СБРОСА]: ${resetUrl}`);
-        console.log('======================================================\n');
+        if (process.env.NODE_ENV !== 'test') {
+            console.log('\n======================================================');
+            console.log(`[СБРОС ПАРОЛЯ] Реальное письмо отправлено через Resend для: ${user.email}`);
+            console.log(`[ССЫЛКА ДЛЯ СБРОСА]: ${resetUrl}`);
+            console.log('======================================================\n');
+        }
 
         return {
-            message: `Письмо для восстановления доступа успешно сформировано для ${user.email}`,
+            message: `Письмо с проверочным кодом отправлено на вашу почту ${user.email} через Resend`,
             email: user.email,
+            deliveryMethod: 'resend',
             debugToken: rawToken,
             resetToken: rawToken,
-            resetUrl,
-            emailRecord: mailResult ? mailResult.emailRecord : null
+            resetUrl
+        };
+    }
+
+    /**
+     * Смена пароля авторизованным пользователем (только для своего аккаунта)
+     */
+    static async changePassword(userId, { currentPassword, newPassword, confirmPassword }, { ipAddress, sessionId }) {
+        if (!currentPassword || !newPassword) {
+            throw ApiError.badRequest('Текущий и новый пароль обязательны для заполнения', 'MISSING_CREDENTIALS');
+        }
+
+        if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+            throw ApiError.unprocessableEntity('Новый пароль и его подтверждение не совпадают', [
+                { field: 'confirmPassword', message: 'Пароли не совпадают' }
+            ]);
+        }
+
+        const user = db.prepare('SELECT id, email, password_hash FROM users WHERE id = ?').get(userId);
+        if (!user) {
+            throw ApiError.notFound('Пользователь не найден', 'USER_NOT_FOUND');
+        }
+
+        const isCurrentValid = bcrypt.compareSync(currentPassword, user.password_hash);
+        if (!isCurrentValid) {
+            throw ApiError.badRequest('Неверно указан текущий пароль', 'INVALID_CURRENT_PASSWORD');
+        }
+
+        const passCheck = this.validatePasswordStrength(newPassword);
+        if (!passCheck.valid) {
+            throw ApiError.unprocessableEntity(passCheck.message, [
+                { field: 'newPassword', message: passCheck.message }
+            ]);
+        }
+
+        if (currentPassword === newPassword) {
+            throw ApiError.badRequest('Новый пароль должен отличаться от текущего пароля', 'SAME_PASSWORD');
+        }
+
+        const newHash = bcrypt.hashSync(newPassword, config.BCRYPT_SALT_ROUNDS);
+
+        db.prepare(`
+            UPDATE users
+            SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).run(newHash, userId);
+
+        // Завершаем остальные сессии пользователя на других устройствах (Безопасность сессий)
+        if (sessionId) {
+            SessionService.revokeOtherSessions(userId, sessionId);
+        }
+
+        logger.audit('PASSWORD_CHANGED_BY_USER', {
+            user: { id: userId, email: user.email },
+            ip: ipAddress,
+            details: { message: 'Пользователь успешно сменил личный пароль' }
+        });
+
+        return {
+            message: 'Ваш пароль успешно изменен. Сессии на других устройствах завершены.'
         };
     }
 
