@@ -1,7 +1,5 @@
 const logger = require('./logger');
 
-const sentEmailsList = [];
-
 /**
  * Отправка письма для восстановления доступа через почтовый сервис Resend (HTTPS REST API)
  * Отправка выполняется строго через защищенный HTTPS (порт 443), без использования сетевого SMTP.
@@ -62,9 +60,6 @@ async function sendPasswordResetEmail(email, resetToken, resetUrl) {
         resetUrl,
         sentAt: new Date().toISOString()
     };
-
-    sentEmailsList.unshift(emailRecord);
-    if (sentEmailsList.length > 50) sentEmailsList.pop();
 
     // В тестовой среде Jest не отправляем реальные запросы через интернет
     if (process.env.NODE_ENV === 'test') {
@@ -135,25 +130,7 @@ async function sendPasswordResetEmail(email, resetToken, resetUrl) {
     };
 }
 
-/**
- * Получение истории отправленных писем
- */
-function getSentEmails(forEmail) {
-    if (forEmail) {
-        return sentEmailsList.filter(m => m.to.toLowerCase() === forEmail.trim().toLowerCase());
-    }
-    return [...sentEmailsList];
-}
-
-/**
- * Очистка списка писем (для тестов)
- */
-function clearSentEmails() {
-    sentEmailsList.length = 0;
-}
-
 module.exports = {
-    sendPasswordResetEmail,
-    getSentEmails,
-    clearSentEmails
+    sendPasswordResetEmail
 };
+

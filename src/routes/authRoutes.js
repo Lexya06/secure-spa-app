@@ -6,7 +6,6 @@ const { authenticateToken, requireRoles } = require('../middleware/auth');
 const ApiError = require('../errors/ApiError');
 const logger = require('../logger');
 const { db } = require('../db');
-const mailer = require('../mailer');
 
 /**
  * 1. Регистрация нового пользователя
@@ -184,21 +183,7 @@ router.post('/forgot-password', async (req, res, next) => {
 });
 
 /**
- * 9.1. Получение писем из личного почтового ящика текущего пользователя
- * GET /api/auth/mailbox (200 OK)
- * Строго требует аутентификации и отдает письма ТОЛЬКО для личной почты вошедшего пользователя!
- */
-router.get('/mailbox', authenticateToken, (req, res) => {
-    const emails = mailer.getSentEmails(req.user.email);
-    res.status(200).json({
-        success: true,
-        count: emails.length,
-        data: emails
-    });
-});
-
-/**
- * 9.2. Смена пароля текущим пользователем для своей учетной записи
+ * 10. Смена пароля текущим пользователем для своей учетной записи
  * POST /api/auth/change-password (200 OK)
  */
 router.post('/change-password', authenticateToken, async (req, res, next) => {
