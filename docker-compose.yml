@@ -6,12 +6,17 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3000
       - JWT_SECRET=production-secret-key-spp-lab3-2026
       - REFRESH_TOKEN_SECRET=production-refresh-secret-key-spp-lab3-2026
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - EMAIL_FROM=${EMAIL_FROM}
     volumes:
       - ./secure_todo.db:/app/secure_todo.db
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - ./.env:/app/.env:ro

@@ -77,7 +77,8 @@ async function sendPasswordResetEmail(email, resetToken, resetUrl) {
     }
 
     // В бесплатном тарифе Resend отправка производится от имени onboarding@resend.dev
-    const fromAddress = 'TaskManager СПП <onboarding@resend.dev>';
+
+    const fromAddress = 'TaskManager <onboarding@resend.dev>';
     const replyTo = process.env.EMAIL_FROM || 'arikhartmen75@gmail.com';
 
     const response = await fetch('https://api.resend.com/emails', {

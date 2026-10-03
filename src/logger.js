@@ -8,13 +8,37 @@ if (!fs.existsSync(config.LOGS_DIR)) {
     fs.mkdirSync(config.LOGS_DIR, { recursive: true });
 }
 
-// Кастомный форматтер для консоли (читабельный)
-const consoleFormat = winston.format.printf(({ level, message, timestamp, requestId, userId, role, ...meta }) => {
-    const reqStr = requestId ? ` [Req: ${requestId.substring(0, 8)}]` : '';
-    const userStr = userId ? ` [User: #${userId} (${role || 'none'})]` : '';
-    const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
-    return `${timestamp} [${level.toUpperCase()}]${reqStr}${userStr}: ${message}${metaStr}`;
+// Фильтр для выделения только событий аудита безопасности
+const auditFilter = winston.format((info) => {
+    return (info.audit || info.action) ? info : false;
 });
+
+// Кастомный форматтер для консоли (читабельный структурированный вывод)
+const consoleFormat = winston.format.printf((info) => {
+    const { level, message, timestamp, requestId, userId, role, audit, action, status, ...meta } = info;
+    delete meta.service;
+    const reqStr = requestId ? ` \x1b[36m[Req: ${requestId.substring(0, 8)}]\x1b[0m` : '';
+    const userStr = userId ? ` \x1b[35m[User: #${userId}${role ? ' (' + role + ')' : ''}]\x1b[0m` : '';
+    const auditBadge = audit ? ` \x1b[33m[AUDIT: ${action || 'EVENT'}${status ? ' ' + status : ''}]\x1b[0m` : '';
+    let metaStr = '';
+    const metaKeys = Object.keys(meta);
+    if (metaKeys.length > 0) {
+        metaStr = ` \x1b[90m${JSON.stringify(meta)}\x1b[0m`;
+    }
+    return `\x1b[90m${timestamp}\x1b[0m [${level}]${reqStr}${userStr}${auditBadge}: ${message}${metaStr}`;
+});
+
+// Формат вывода в консоль (структурированный JSON или форматированный цветной текст)
+const consoleTransportFormat = process.env.LOG_FORMAT === 'json'
+    ? winston.format.combine(
+        winston.format.timestamp({ format: 'YYYY-MM-DDTHH:mm:ss.SSSZ' }),
+        winston.format.json()
+    )
+    : winston.format.combine(
+        winston.format.colorize({ all: false }),
+        winston.format.timestamp({ format: 'HH:mm:ss' }),
+        consoleFormat
+    );
 
 // Настройка Winston с JSON сериализацией для файлов (структурированное логирование)
 const logger = winston.createLogger({
@@ -44,7 +68,12 @@ const logger = winston.createLogger({
             filename: path.join(config.LOGS_DIR, 'audit.log'),
             level: 'info',
             maxsize: 10 * 1024 * 1024,
-            maxFiles: 5
+            maxFiles: 5,
+            format: winston.format.combine(
+                auditFilter(),
+                winston.format.timestamp({ format: 'YYYY-MM-DDTHH:mm:ss.SSSZ' }),
+                winston.format.json()
+            )
         })
     ]
 });
@@ -52,11 +81,7 @@ const logger = winston.createLogger({
 // В среде разработки и тестирования дублируем в консоль
 if (config.NODE_ENV !== 'test') {
     logger.add(new winston.transports.Console({
-        format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.timestamp({ format: 'HH:mm:ss' }),
-            consoleFormat
-        )
+        format: consoleTransportFormat
     }));
 }
 
